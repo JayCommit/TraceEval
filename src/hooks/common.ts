@@ -21,22 +21,27 @@ export function normalizeHookType(type: string): string {
  * Safely truncates strings or serialized objects to prevent payload explosion
  * and reduce context token overhead when traces are processed.
  */
-export function truncatePayload<T = unknown>(value: T, maxChars = 8192): T {
+export function truncatePayload<T = unknown>(value: T, maxChars?: number): T {
+  const envMax = process.env.TRACEEVAL_MAX_PAYLOAD
+    ? parseInt(process.env.TRACEEVAL_MAX_PAYLOAD, 10)
+    : undefined;
+  const limit = maxChars ?? (envMax && !isNaN(envMax) ? envMax : 8192);
+
   if (typeof value === "string") {
-    if (value.length <= maxChars) return value as T;
-    const keepChars = Math.floor(maxChars / 2);
-    const excess = value.length - maxChars;
+    if (value.length <= limit) return value as T;
+    const keepChars = Math.floor(limit / 2);
+    const excess = value.length - limit;
     return `${value.slice(0, keepChars)}\n... [truncated ${excess} characters] ...\n${value.slice(-keepChars)}` as unknown as T;
   }
 
   if (Array.isArray(value)) {
-    return value.map((item) => truncatePayload(item, maxChars)) as unknown as T;
+    return value.map((item) => truncatePayload(item, limit)) as unknown as T;
   }
 
   if (value !== null && typeof value === "object") {
     const truncatedObj: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      truncatedObj[k] = truncatePayload(v, maxChars);
+      truncatedObj[k] = truncatePayload(v, limit);
     }
     return truncatedObj as unknown as T;
   }

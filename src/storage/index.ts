@@ -18,8 +18,8 @@ export class StorageManager {
   public readonly tracesDir: string;
   public readonly goldenDir: string;
   public readonly dbPath: string;
-  private jsonl: JsonlStorage;
-  private sqlite: SqliteStorage;
+  public readonly jsonl: JsonlStorage;
+  public readonly sqlite: SqliteStorage;
   public readonly golden: GoldenStorage;
 
   constructor(options: StorageOptions = {}) {

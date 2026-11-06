@@ -210,21 +210,31 @@ function printGoldenDiffView(
   console.log("");
   console.log(pc.bold(pc.cyan(`Trace Comparison: ${sessionId} vs Golden Baseline (${goldenName})`)));
   console.log(pc.dim("─".repeat(70)));
+  console.log(
+    pc.bold(`  ${"METRIC".padEnd(16)} ${"GOLDEN".padEnd(14)} ${"CURRENT".padEnd(14)} ${"DELTA"}`)
+  );
+  console.log(pc.dim("─".repeat(70)));
 
   const stepSign = diff.stepDelta > 0 ? `+${diff.stepDelta}` : `${diff.stepDelta}`;
   const stepColor = diff.stepDelta > 0 ? pc.yellow : pc.green;
+  const stepPct = `[${diff.stepPercentDelta >= 0 ? "+" : ""}${diff.stepPercentDelta.toFixed(1)}%]`;
   console.log(
-    `  ${"Steps:".padEnd(16)} Golden: ${golden.stepCount} -> Current: ${diff.current?.stepCount ?? "?"} (${stepColor(`${stepSign} [${diff.stepPercentDelta >= 0 ? "+" : ""}${diff.stepPercentDelta.toFixed(1)}%]`)} )`
+    `  ${"Steps".padEnd(16)} ${String(golden.stepCount).padEnd(14)} ${String(diff.current?.stepCount ?? "?").padEnd(14)} ${stepColor(`${stepSign} ${stepPct}`)}`
   );
 
   if (diff.durationDelta !== undefined && golden.durationMs) {
     const durSign = diff.durationDelta >= 0 ? `+${diff.durationDelta}ms` : `${diff.durationDelta}ms`;
-    console.log(`  ${"Duration:".padEnd(16)} Golden: ${golden.durationMs}ms -> Current: ${diff.current?.durationMs ?? "?"}ms (${durSign})`);
+    const durColor = diff.durationDelta > 0 ? pc.yellow : pc.green;
+    console.log(
+      `  ${"Duration".padEnd(16)} ${`${golden.durationMs}ms`.padEnd(14)} ${`${diff.current?.durationMs ?? "?"}ms`.padEnd(14)} ${durColor(durSign)}`
+    );
   }
 
   if (diff.costDelta !== undefined) {
     const costSign = diff.costDelta >= 0 ? `+$${diff.costDelta.toFixed(4)}` : `-$${Math.abs(diff.costDelta).toFixed(4)}`;
-    console.log(`  ${"Cost:".padEnd(16)} Delta: ${costSign}`);
+    console.log(
+      `  ${"Cost".padEnd(16)} ${`$${(golden.cost ?? 0).toFixed(4)}`.padEnd(14)} ${"Current".padEnd(14)} ${costSign}`
+    );
   }
 
   console.log(pc.dim("─".repeat(70)));
@@ -248,23 +258,28 @@ function printTracesDiffView(diff: ReturnType<typeof compareTraces>): void {
   console.log("");
   console.log(pc.bold(pc.cyan(`Trace Comparison: ${diff.sessionA.id} (A) vs ${diff.sessionB.id} (B)`)));
   console.log(pc.dim("─".repeat(70)));
+  console.log(
+    pc.bold(`  ${"METRIC".padEnd(16)} ${"SESSION A".padEnd(14)} ${"SESSION B".padEnd(14)} ${"DELTA"}`)
+  );
+  console.log(pc.dim("─".repeat(70)));
 
   const stepSign = diff.stepDelta > 0 ? `+${diff.stepDelta}` : `${diff.stepDelta}`;
   const stepColor = diff.stepDelta > 0 ? pc.yellow : diff.stepDelta < 0 ? pc.green : pc.dim;
+  const stepPct = `[${diff.stepPercentDelta >= 0 ? "+" : ""}${diff.stepPercentDelta.toFixed(1)}%]`;
   console.log(
-    `  ${"Step Count:".padEnd(18)} A: ${String(diff.sessionA.stepCount).padEnd(6)} | B: ${String(diff.sessionB.stepCount).padEnd(6)} | Delta: ${stepColor(`${stepSign} (${diff.stepPercentDelta >= 0 ? "+" : ""}${diff.stepPercentDelta.toFixed(1)}%)`)}`
+    `  ${"Step Count:".padEnd(16)} ${String(diff.sessionA.stepCount).padEnd(14)} ${String(diff.sessionB.stepCount).padEnd(14)} ${stepColor(`${stepSign} ${stepPct}`)}`
   );
 
   const durSign = diff.durationDelta >= 0 ? `+${diff.durationDelta}ms` : `${diff.durationDelta}ms`;
   const durColor = diff.durationDelta > 0 ? pc.yellow : pc.green;
   console.log(
-    `  ${"Duration:".padEnd(18)} A: ${`${diff.sessionA.durationMs}ms`.padEnd(6)} | B: ${`${diff.sessionB.durationMs}ms`.padEnd(6)} | Delta: ${durColor(durSign)}`
+    `  ${"Duration:".padEnd(16)} ${`${diff.sessionA.durationMs}ms`.padEnd(14)} ${`${diff.sessionB.durationMs}ms`.padEnd(14)} ${durColor(durSign)}`
   );
 
   if (diff.costDelta !== undefined) {
     const costSign = diff.costDelta >= 0 ? `+$${diff.costDelta.toFixed(4)}` : `-$${Math.abs(diff.costDelta).toFixed(4)}`;
     console.log(
-      `  ${"Cost:".padEnd(18)} A: ${`$${(diff.sessionA.cost ?? 0).toFixed(4)}`.padEnd(6)} | B: ${`$${(diff.sessionB.cost ?? 0).toFixed(4)}`.padEnd(6)} | Delta: ${costSign}`
+      `  ${"Cost".padEnd(16)} ${`$${(diff.sessionA.cost ?? 0).toFixed(4)}`.padEnd(14)} ${`$${(diff.sessionB.cost ?? 0).toFixed(4)}`.padEnd(14)} ${costSign}`
     );
   }
 
@@ -288,7 +303,7 @@ function printTracesDiffView(diff: ReturnType<typeof compareTraces>): void {
     console.log(pc.dim("─".repeat(70)));
     console.log(pc.bold("Files Touched Comparison:"));
     if (diff.filesShared.length > 0) {
-      console.log(`  • Shared:  ${diff.filesShared.join(", ")}`);
+      console.log(`  • Shared:    ${diff.filesShared.join(", ")}`);
     }
     if (diff.filesAdded.length > 0) {
       console.log(`  • In B only: ${pc.yellow(diff.filesAdded.join(", "))}`);

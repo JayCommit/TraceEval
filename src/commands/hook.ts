@@ -17,6 +17,7 @@ export interface HookOptions {
   debug?: boolean;
   baseDir?: string;
   stdinTimeoutMs?: number;
+  truncate?: number | string;
 }
 
 /**
@@ -138,6 +139,9 @@ export async function runHook(
   options: HookOptions = {}
 ): Promise<void> {
   const debug = isHookDebugEnabled(options);
+  if (options.truncate) {
+    process.env.TRACEEVAL_MAX_PAYLOAD = String(options.truncate);
+  }
 
   try {
     if (debug) {

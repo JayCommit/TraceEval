@@ -5,6 +5,31 @@ All notable changes to TraceEval will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.3] - 2026-11-06
+
+### Live Real-Time Viewer, Visual File Diffs & UX Polish
+
+#### Real-Time Live Viewer (SSE)
+- **Zero-Dependency Event Streaming**: Implemented native Server-Sent Events (SSE) server via Node's built-in `node:http` module in `createViewerServer`.
+- **Dynamic DOM Updates**: Connected browsers stream new trace events in real time as tools execute, updating timeline cards, step counters, and status badges without page refreshes.
+- **Pulsing Live Indicator**: Added visual status indicator (`LIVE` / `RECONNECTING` / `OFFLINE`) with pulsing green dot.
+- **Graceful Offline Fallback**: Static file generation (`traceeval view --output <file>`) continues to operate standalone without network requests.
+- **CLI Flags**: Added `--no-open` flag to `traceeval view` to support headless and CI server invocations.
+
+#### Visual File Diff Engine
+- **Unified Line-by-Line Diffing**: Pure TypeScript diff generator (`src/viewer/diff.ts`) computing additions and deletions using Longest Common Subsequence (LCS).
+- **Multi-Source Extraction**: Automatically extracts diffs from `file_change` events (`before`/`after`, `diff`, `patch`) and file editing tool calls (`Edit`, `edit_file`, `str_replace_editor`, `write_file`).
+- **Syntax-Styled UI**: Clean diff visualization with green addition gutters (`+`), red deletion gutters (`-`), file headers, and addition/deletion count badges.
+- **Diff Truncation Protection**: Intelligently truncates diffs exceeding 300 lines to preserve viewer performance and responsiveness.
+
+#### Usability & Quick Wins
+- **Structured `traces diff` Terminal Output**: Redesigned terminal diff comparator with clean tabular alignment (`METRIC`, `SESSION A`, `SESSION B`, `DELTA`) and color-coded status deltas.
+- **Configurable Payload Truncation**: Added `--truncate <number>` option in CLI and supported `TRACEEVAL_MAX_PAYLOAD` environment variable to give users direct control over event payload size boundaries.
+- **Consistent Agent Installation**: Unified flags and descriptions across all 7 supported agents in `traceeval install`.
+- **Expanded Test Suite**: Added 9 new unit and integration tests covering visual diff computation, truncation, SSE server streaming, and REST API endpoints (167 tests passing across 24 test files).
+
+---
+
 ## [0.0.2] - 2026-11-06
 
 ### Token Optimization, Extended Agent Support & Quality Improvements

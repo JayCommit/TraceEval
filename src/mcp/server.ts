@@ -68,7 +68,7 @@ export class McpServer {
             protocolVersion: "2024-11-05",
             serverInfo: {
               name: "traceeval-mcp",
-              version: "0.0.2",
+              version: "0.0.3",
             },
             capabilities: {
               tools: {},

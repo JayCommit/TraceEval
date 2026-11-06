@@ -3,8 +3,8 @@
 > **pytest + git blame for AI coding agents.**  
 > *Stop shipping agent regressions. Catch them before they cost you tokens and time.*
 
-[![npm version](https://img.shields.io/badge/npm-v0.0.2-blue.svg)](https://www.npmjs.com/package/traceeval)
-[![Tests](https://img.shields.io/badge/tests-158%20passing-brightgreen.svg)](https://github.com/JayCommit/TraceEval)
+[![npm version](https://img.shields.io/badge/npm-v0.0.3-blue.svg)](https://www.npmjs.com/package/traceeval)
+[![Tests](https://img.shields.io/badge/tests-167%20passing-brightgreen.svg)](https://github.com/JayCommit/TraceEval)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D22.0.0-green.svg)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-ES2022-blue)](https://www.typescriptlang.org/)
@@ -17,9 +17,24 @@ AI coding agents generate code rapidly, but verification is mostly manual. A sin
 
 - **Local-first & private**: Runs 100% locally on your machine or in CI. No mandatory cloud observability platforms or token leaks.
 - **Token-efficient by design**: Zero-token deterministic assertions, automatic payload truncation, and compact MCP responses that protect agent context windows.
+- **Real-time live streaming**: Stream live agent tool execution into the browser with zero-dependency Server-Sent Events (SSE).
+- **Visual file diffs**: Unified, syntax-styled line diffs for code edits directly in static and live viewers.
 - **Regression-first ("git blame" for agents)**: Compares current runs against known-good golden baselines to catch step inflation, tool deviations, and cost drift.
-- **Trajectory validation, not just output diffs**: Validates both final code state and the path taken (tool calls, safety boundaries, step budgets).
 - **First-class agent support**: One-command hook injection for Cursor, Grok, Grok Bot, OpenAI / ChatGPT app, Antigravity, Claude Code, and OpenCode.
+
+---
+
+## 🤖 Supported Agents
+
+| Agent | Install Command | Config Files | Description |
+| :--- | :--- | :--- | :--- |
+| **Cursor** | `traceeval install cursor` | `.cursor/hooks.json`, `.cursor/mcp.json`, `.cursor/rules/traceeval.mdc` | Configures tool hooks, MCP server, and workspace agent rules. |
+| **Grok** | `traceeval install grok` | `.grok/hooks.json`, `.grok/config.json` | Captures tool invocations and token usage metrics. |
+| **Grok Bot** | `traceeval install grok-bot` | `.grok-bot/plugins/traceeval.js`, `.grok-bot/config.json` | Bot middleware adapter for automated CI and PR bots. |
+| **OpenAI / ChatGPT** | `traceeval install openai` | `.openai/hooks.json`, `.openai/config.json`, `.openai/mcp.json` | Integrates with ChatGPT Desktop App and OpenAI SDK/CLI tools. |
+| **Antigravity** | `traceeval install antigravity` | `.agents/hooks.json` | Native Antigravity lifecycle hooks (`SessionStart`, `PreToolUse`, `PostToolUse`, `Stop`). |
+| **Claude Code** | `traceeval install claude` | `.claude/settings.json` | Native Claude Code lifecycle hooks (`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`). |
+| **OpenCode** | `traceeval install opencode` | `.opencode/plugins/traceeval.js`, `.opencode/config.json` | Plugin capturing tool execution and file modifications. |
 
 ---
 
@@ -31,7 +46,7 @@ AI coding agents generate code rapidly, but verification is mostly manual. A sin
 # Global install (recommended)
 npm install -g traceeval
 
-# Or run via npx
+# Or verify via npx
 npx traceeval --version
 ```
 
@@ -52,26 +67,7 @@ This creates:
 Install background recording hooks with a single command:
 
 ```bash
-# Cursor
-traceeval install cursor
-
-# Grok (xAI)
-traceeval install grok
-
-# Grok Bot
-traceeval install grok-bot
-
-# OpenAI / ChatGPT Desktop
-traceeval install openai
-
-# Antigravity
-traceeval install antigravity
-
-# Claude Code
-traceeval install claude
-
-# OpenCode
-traceeval install opencode
+traceeval install cursor        # or: grok, grok-bot, openai, antigravity, claude, opencode
 ```
 
 Lifecycle hooks stream tool calls and session events directly to `.traceeval/traces` in the background with zero latency.
@@ -109,17 +105,28 @@ TraceEval saves the baseline fingerprint (step count, duration, tool call breakd
 
 ---
 
-## 🤖 Supported Agents
+## 🖥 Real-Time Live Viewer & Visual File Diffs
 
-| Agent | Install Command | Target Config / Hooks | Notes |
-| :--- | :--- | :--- | :--- |
-| **Cursor** | `traceeval install cursor` | `.cursor/hooks.json`, `.cursor/mcp.json`, `.cursor/rules/traceeval.mdc` | Configures tool hooks, MCP server, and workspace agent rules. |
-| **Grok** | `traceeval install grok` | `.grok/hooks.json`, `.grok/config.json` | Captures tool invocations and token usage metrics. |
-| **Grok Bot** | `traceeval install grok-bot` | `.grok-bot/plugins/traceeval.js`, `.grok-bot/config.json` | Bot middleware adapter for automated CI / PR bots. |
-| **OpenAI / ChatGPT** | `traceeval install openai` | `.openai/hooks.json`, `.openai/config.json`, `.openai/mcp.json` | Integrates with ChatGPT Desktop App and OpenAI SDK/CLI tools. |
-| **Antigravity** | `traceeval install antigravity` | `.agents/hooks.json` | Native Antigravity lifecycle hooks (`SessionStart`, `PreToolUse`, `PostToolUse`, `Stop`). Preserves existing hooks. |
-| **Claude Code** | `traceeval install claude` | `.claude/settings.json` | Native Claude Code hooks (`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`). |
-| **OpenCode** | `traceeval install opencode` | `.opencode/plugins/traceeval.js`, `.opencode/config.json` | OpenCode plugin capturing tool execution and file modifications. |
+### 1. Live SSE Trace Viewer
+Stream live agent execution directly to your browser as tools run in real-time, with zero external dependencies:
+```bash
+traceeval view --latest --serve
+```
+- Real-time Server-Sent Events (SSE) updates the timeline dynamically without page refreshes.
+- Live status indicator pulses in the header.
+- Interactive category filters (tool calls, file changes, prompts) and live payload search.
+
+### 2. Visual Code Diff Viewer
+Whenever file edits (`edit_file`, `str_replace_editor`, `write_file`, or `file_change`) are executed, TraceEval displays a clear, syntax-styled unified diff:
+- Color-coded line additions (`+`) and deletions (`-`).
+- Addition and deletion count badges (`+12 -3`).
+- Automatic diff truncation for large files to keep inspection fast and responsive.
+- Available in both static HTML exports and the real-time live viewer.
+
+```bash
+# Export self-contained static HTML report:
+traceeval view --latest --output ./reports/trace.html
+```
 
 ---
 
@@ -128,9 +135,9 @@ TraceEval saves the baseline fingerprint (step count, duration, tool call breakd
 TraceEval is engineered to prevent token waste:
 
 1. **Deterministic Assertions First**: Prefer `file_contains`, `tests_pass`, `max_steps`, and `cost_under` for instant, 0-token evaluations.
-2. **Intelligent Payload Truncation**: Automatically bounds large tool outputs (e.g. giant logs or diffs) to prevent context explosion while preserving diagnostics.
-3. **Token-Aware MCP Server**: `get_trace` provides compact tool outputs by default so AI agents introspecting past runs don't blow their context window.
-4. **Lean Trajectory Summaries**: LLM-as-a-judge (`--judge`) summarizes large trajectories by consolidating intermediate steps and using a minimal system prompt.
+2. **Intelligent Payload Truncation**: Automatically bounds large tool outputs (e.g. giant logs or diffs) to prevent context explosion while preserving diagnostics. User-configurable via `--truncate <chars>` or `TRACEEVAL_MAX_PAYLOAD`.
+3. **Token-Aware MCP Server**: `get_trace` provides compact tool outputs by default (`maxOutputLength: 1000`) so AI agents introspecting past runs don't blow their context window.
+4. **Lean Trajectory Summaries**: LLM-as-a-judge (`--judge`) consolidates intermediate steps and uses a 50% tighter system prompt.
 5. **Cost & Token Drift Budgets**: Detect token inflation before merging with `cost_under` assertions and `max_cost_increase` golden limits.
 
 ---
@@ -211,48 +218,10 @@ If an agent change causes step drift or uses a forbidden tool, TraceEval flags t
 | `traceeval golden list` | Lists all registered golden baselines and step counts |
 | `traceeval traces list` | Lists recent recorded execution traces |
 | `traceeval traces show <id>` | Shows chronological event timeline, tool inputs/outputs, and files touched |
-| `traceeval traces diff <id1> <id2>` | Side-by-side trajectory differencer (steps, tools, duration, files) |
-| `traceeval view --latest --serve` | Starts local offline HTML viewer on port 4242 |
+| `traceeval traces diff <id1> <id2>` | Side-by-side trajectory differencer with structured metric alignment |
+| `traceeval view --latest --serve` | Starts local real-time SSE streaming viewer on port 4242 |
 | `traceeval specs --validate` | Verifies linked `AGENTS.md` spec headings and fails if broken |
 | `traceeval mcp` | Starts Model Context Protocol server over stdio for agent queries |
-
----
-
-## 🖥 HTML Viewer, Specs & MCP
-
-### 1. Offline HTML Trace Viewer
-TraceEval includes a self-contained, offline HTML viewer with zero external CDN dependencies:
-```bash
-traceeval view --latest --serve
-```
-Features interactive category filters (tool calls, file changes, prompts), live payload search, and side-by-side golden diff banners.
-
-### 2. Spec-Aware Testing (`AGENTS.md` Linking)
-Link tests directly to requirements in `AGENTS.md` or `CLAUDE.md`:
-```yaml
-spec: "AGENTS.md#Authentication Rules"
-```
-Validate linked documentation headings in CI:
-```bash
-traceeval specs --validate
-```
-
-### 3. Model Context Protocol (MCP) Server
-Allows agents to query historical traces, inspect golden standards, and avoid past errors:
-```bash
-traceeval mcp
-```
-Configure in Cursor (`.cursor/mcp.json`), Claude Code (`~/.claude/settings.json`), or ChatGPT Desktop (`.openai/mcp.json`):
-```json
-{
-  "mcpServers": {
-    "traceeval": {
-      "command": "traceeval",
-      "args": ["mcp"]
-    }
-  }
-}
-```
 
 ---
 

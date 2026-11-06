@@ -21,7 +21,7 @@ const program = new Command();
 program
   .name("traceeval")
   .description("TraceEval — Local-first evaluation and regression testing for AI coding agents")
-  .version("0.0.2")
+  .version("0.0.3")
   .enablePositionalOptions();
 
 // Command: init
@@ -72,9 +72,10 @@ program
   .command("hook [type]")
   .description("Internal hook endpoint called by agent hooks (stdin piped)")
   .option("-s, --session <id>", "Session ID")
-  .option("-a, --agent <name>", "Agent name (e.g., claude, opencode)")
+  .option("-a, --agent <name>", "Agent name (cursor, grok, grok-bot, openai, antigravity, claude, opencode)")
   .option("-t, --tool <name>", "Tool name")
   .option("-d, --data <json>", "Additional JSON data")
+  .option("--truncate <number>", "Max characters per payload field before truncation", (v) => parseInt(v, 10))
   .option("--debug", "Enable debug logging for hook execution", false)
   .action(async (type = "custom", options) => {
     try {
@@ -83,6 +84,7 @@ program
         agent: options.agent,
         tool: options.tool,
         data: options.data,
+        truncate: options.truncate,
         debug: options.debug,
       });
     } catch (err) {
@@ -188,12 +190,13 @@ tracesCmd
 // Command: view
 program
   .command("view [sessionId]")
-  .description("View an interactive offline HTML trace timeline and metrics")
+  .description("View interactive HTML trace timeline, file diffs, and real-time live events")
   .option("-l, --latest", "View the most recent session")
   .option("-o, --output <file>", "Save HTML to specific file path")
-  .option("-s, --serve", "Serve viewer via local HTTP server")
+  .option("-s, --serve", "Serve viewer via local HTTP server with real-time SSE streaming")
   .option("-p, --port <number>", "Port for local HTTP server", "4242")
   .option("-g, --golden <test-name>", "Golden baseline test name to compare against")
+  .option("--no-open", "Do not automatically launch browser window on serve")
   .action(async (sessionId, options) => {
     await runView(sessionId, {
       latest: options.latest,
@@ -201,6 +204,7 @@ program
       serve: options.serve,
       port: options.port,
       golden: options.golden,
+      openBrowser: options.open,
     });
   });
 

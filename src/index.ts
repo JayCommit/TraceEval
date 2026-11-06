@@ -23,5 +23,7 @@ export * from "./commands/traces.js";
 export * from "./reporters/terminal.js";
 export * from "./reporters/markdown.js";
 export * from "./viewer/html.js";
+export * from "./viewer/diff.js";
+export * from "./commands/view.js";
 export * from "./engine/specs.js";
 export * from "./mcp/server.js";
