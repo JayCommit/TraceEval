@@ -1,0 +1,185 @@
+name: "TraceEval AI Agent Regression Testing"
+description: "Local-first evaluation and regression testing for AI coding agents"
+inputs:
+  test-path:
+    description: "Path to test file or directory"
+    required: false
+    default: ".traceeval/tests"
+  update-golden:
+    description: "Whether to bless passing runs as golden baselines"
+    required: false
+    default: "false"
+  github-token:
+    description: "GitHub token for commenting on pull requests"
+    required: false
+    default: "${{ github.token }}"
+  comment-pr:
+    description: "Whether to post or update a sticky PR comment with the evaluation report"
+    required: false
+    default: "true"
+  working-directory:
+    description: "Directory where TraceEval tests live"
+    required: false
+    default: "."
+
+outputs:
+  exit-code:
+    description: "Exit code from traceeval test execution (0 for pass, 1 for failure)"
+    value: ${{ steps.run-traceeval.outputs.exit_code }}
+  report-path:
+    description: "Path to the generated markdown report"
+    value: "${{ inputs.working-directory }}/.traceeval/report.md"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Run TraceEval Tests
+      id: run-traceeval
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        CMD_ARGS=""
+        if [ "${{ inputs.update-golden }}" = "true" ]; then
+          CMD_ARGS="$CMD_ARGS --update-golden"
+        fi
+
+        mkdir -p .traceeval
+        TEST_EXIT_CODE=0
+        npx traceeval test "${{ inputs.test-path }}" --ci --markdown --output .traceeval/report.md $CMD_ARGS || TEST_EXIT_CODE=$?
+
+        echo "exit_code=$TEST_EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+    - name: Publish Step Summary
+      if: always()
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        if [ -f .traceeval/report.md ] && [ -n "$GITHUB_STEP_SUMMARY" ]; then
+          cat .traceeval/report.md >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+    - name: Post or Update Sticky PR Comment
+      if: always()
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        COMMENT_PR: ${{ inputs.comment-pr }}
+        GH_TOKEN: ${{ inputs.github-token }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        EVENT_PATH: ${{ github.event_path }}
+        REPOSITORY: ${{ github.repository }}
+      run: |
+        if [ "$COMMENT_PR" != "true" ] || [ -z "$GITHUB_TOKEN" ]; then
+          echo "PR commenting disabled or github-token not provided. Skipping."
+          exit 0
+        fi
+
+        node -e '
+        const fs = require("node:fs");
+        const path = require("node:path");
+
+        async function run() {
+          const reportPath = path.resolve(".traceeval/report.md");
+          if (!fs.existsSync(reportPath)) {
+            console.log("No report file found at", reportPath);
+            return;
+          }
+
+          const eventPath = process.env.EVENT_PATH;
+          if (!eventPath || !fs.existsSync(eventPath)) {
+            console.log("No event payload found, skipping PR comment.");
+            return;
+          }
+
+          let eventData = {};
+          try {
+            eventData = JSON.parse(fs.readFileSync(eventPath, "utf-8"));
+          } catch (e) {
+            console.log("Error reading event payload:", e.message);
+            return;
+          }
+
+          const prNumber = eventData.pull_request ? eventData.pull_request.number : null;
+          if (!prNumber) {
+            console.log("Not a pull_request event, skipping PR comment.");
+            return;
+          }
+
+          const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+          const repo = process.env.REPOSITORY;
+          if (!token || !repo) {
+            console.log("Missing token or repository, skipping PR comment.");
+            return;
+          }
+
+          const reportContent = fs.readFileSync(reportPath, "utf-8");
+          const marker = "<!-- traceeval-pr-report -->";
+          const body = `${marker}\n${reportContent}`;
+
+          const apiBase = process.env.GITHUB_API_URL || "https://api.github.com";
+          const headers = {
+            "Accept": "application/vnd.github+json",
+            "Authorization": `Bearer ${token}`,
+            "User-Agent": "TraceEval-Action",
+            "X-GitHub-Api-Version": "2022-11-28",
+          };
+
+          try {
+            // Check for existing comment to update (sticky comment)
+            const listUrl = `${apiBase}/repos/${repo}/issues/${prNumber}/comments?per_page=100`;
+            const listRes = await fetch(listUrl, { headers });
+            let existingCommentId = null;
+
+            if (listRes.ok) {
+              const comments = await listRes.json();
+              if (Array.isArray(comments)) {
+                const found = comments.find(c => c.body && c.body.includes(marker));
+                if (found) existingCommentId = found.id;
+              }
+            }
+
+            if (existingCommentId) {
+              console.log(`Updating existing TraceEval PR comment (ID: ${existingCommentId})...`);
+              const patchUrl = `${apiBase}/repos/${repo}/issues/comments/${existingCommentId}`;
+              const patchRes = await fetch(patchUrl, {
+                method: "PATCH",
+                headers,
+                body: JSON.stringify({ body }),
+              });
+              if (!patchRes.ok) {
+                console.warn(`Failed to update comment: ${patchRes.status} ${patchRes.statusText}`);
+              } else {
+                console.log("Successfully updated sticky PR comment.");
+              }
+            } else {
+              console.log(`Creating new TraceEval PR comment on PR #${prNumber}...`);
+              const postUrl = `${apiBase}/repos/${repo}/issues/${prNumber}/comments`;
+              const postRes = await fetch(postUrl, {
+                method: "POST",
+                headers,
+                body: JSON.stringify({ body }),
+              });
+              if (!postRes.ok) {
+                console.warn(`Failed to post comment: ${postRes.status} ${postRes.statusText}`);
+              } else {
+                console.log("Successfully posted sticky PR comment.");
+              }
+            }
+          } catch (err) {
+            console.warn("Error interacting with GitHub API:", err.message);
+          }
+        }
+
+        run().catch(err => console.warn("PR comment script failed:", err));
+        '
+
+    - name: Verify Evaluation Status
+      if: always()
+      shell: bash
+      run: |
+        EXIT_CODE="${{ steps.run-traceeval.outputs.exit_code }}"
+        if [ "$EXIT_CODE" != "0" ]; then
+          echo "::error::TraceEval tests failed with exit code $EXIT_CODE"
+          exit $EXIT_CODE
+        fi
+        echo "TraceEval evaluation passed."

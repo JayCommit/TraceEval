@@ -1,0 +1,51 @@
+name: Agent Regression Testing
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      update_golden:
+        description: "Bless passing runs as new golden baselines"
+        type: boolean
+        default: false
+      test_path:
+        description: "Path to test files or directory"
+        type: string
+        default: ".traceeval/tests"
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  evaluate-agents:
+    name: Evaluate Agent Trajectories & Regressions
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build TraceEval
+        run: npm run build
+
+      - name: Run TraceEval Action
+        uses: ./
+        with:
+          test-path: ${{ inputs.test_path || '.traceeval/tests' }}
+          update-golden: ${{ inputs.update_golden && 'true' || 'false' }}
+          comment-pr: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}

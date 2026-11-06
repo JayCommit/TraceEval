@@ -1,0 +1,63 @@
+{
+  "name": "traceeval",
+  "version": "0.0.1",
+  "description": "Local-first evaluation and regression testing tool for AI coding agents",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "traceeval": "./dist/cli.js",
+    "agenteval": "./dist/cli.js"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JayCommit/TraceEval.git"
+  },
+  "homepage": "https://github.com/JayCommit/TraceEval#readme",
+  "bugs": {
+    "url": "https://github.com/JayCommit/TraceEval/issues"
+  },
+  "scripts": {
+    "build": "tsc && chmod +x dist/cli.js",
+    "start": "tsx src/cli.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run build"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "AGENTS.md",
+    "CHANGELOG.md",
+    "action.yml"
+  ],
+  "keywords": [
+    "evaluation",
+    "ai-agents",
+    "claude-code",
+    "opencode",
+    "regression-testing",
+    "testing",
+    "developer-tools",
+    "mcp",
+    "model-context-protocol"
+  ],
+  "author": "TraceEval Contributors",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "commander": "^13.1.0",
+    "picocolors": "^1.1.1",
+    "yaml": "^2.7.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.8"
+  }
+}

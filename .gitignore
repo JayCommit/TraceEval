@@ -1,0 +1,22 @@
+# Node
+node_modules/
+dist/
+
+# TraceEval local data
+.traceeval/traces/
+.traceeval/*.db
+.traceeval/*.db-journal
+.traceeval/*.db-wal
+.traceeval/*.db-shm
+.traceeval/.active_session
+.traceeval/reports/
+.traceeval/report.md
+.traceeval/*.html
+
+# Claude Code local
+.claude/
+
+# Logs & temp
+*.log
+.DS_Store
+*.tmp
