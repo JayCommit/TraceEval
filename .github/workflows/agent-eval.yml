@@ -42,6 +42,12 @@ jobs:
       - name: Build TraceEval
         run: npm run build
 
+      - name: Run Unit & Integration Tests
+        run: npm test
+
+      - name: Initialize Starter Test Suite for Self-Test
+        run: node dist/cli.js init
+
       - name: Run TraceEval Action
         uses: ./
         with:
