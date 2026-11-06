@@ -1,7 +1,9 @@
 import { TraceSession, GoldenBaseline, RegressionDiff, TraceEvent } from "../types/index.js";
 import { extractDiffFromEvent, renderDiffHtml } from "./diff.js";
+import { VIEWER_CSS } from "./styles.js";
 
 export * from "./diff.js";
+export * from "./styles.js";
 
 export interface ViewerOptions {
   golden?: GoldenBaseline | null;
@@ -21,6 +23,9 @@ function escapeHtml(str: unknown): string {
     .replace(/'/g, "&#039;");
 }
 
+/**
+ * Generates interactive HTML report for a single trace session.
+ */
 export function generateTraceHtml(session: TraceSession, options: ViewerOptions = {}): string {
   const { golden, diff, isLive = false } = options;
 
@@ -42,591 +47,7 @@ export function generateTraceHtml(session: TraceSession, options: ViewerOptions 
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TraceEval — ${escapeHtml(session.id)}</title>
   <style>
-    :root {
-      --bg: #0d1117;
-      --card-bg: #161b22;
-      --card-border: #30363d;
-      --text: #c9d1d9;
-      --text-muted: #8b949e;
-      --accent: #58a6ff;
-      --success: #3fb950;
-      --danger: #f85149;
-      --warning: #d29922;
-      --purple: #bc8cff;
-      --code-bg: #0a0d12;
-      --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace;
-      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    }
-
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      background-color: var(--bg);
-      color: var(--text);
-      font-family: var(--font-sans);
-      line-height: 1.5;
-      padding: 24px;
-    }
-
-    header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding-bottom: 20px;
-      border-bottom: 1px solid var(--card-border);
-      margin-bottom: 24px;
-    }
-
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .brand h1 {
-      font-size: 20px;
-      font-weight: 700;
-      color: #f0f6fc;
-      letter-spacing: -0.5px;
-    }
-
-    .brand .tagline {
-      color: var(--text-muted);
-      font-size: 13px;
-    }
-
-    .header-actions {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      font-size: 12px;
-      font-weight: 600;
-      padding: 3px 8px;
-      border-radius: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
-    .badge-success { background: rgba(63, 185, 80, 0.15); color: var(--success); border: 1px solid var(--success); }
-    .badge-error { background: rgba(248, 81, 73, 0.15); color: var(--danger); border: 1px solid var(--danger); }
-    .badge-active { background: rgba(88, 166, 255, 0.15); color: var(--accent); border: 1px solid var(--accent); }
-    .badge-neutral { background: rgba(139, 148, 158, 0.15); color: var(--text-muted); border: 1px solid var(--card-border); }
-
-    .live-indicator {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 11px;
-      font-weight: 700;
-      padding: 3px 8px;
-      border-radius: 12px;
-      border: 1px solid var(--card-border);
-      background: rgba(139, 148, 158, 0.1);
-      color: var(--text-muted);
-      letter-spacing: 0.5px;
-      user-select: none;
-    }
-
-    .live-indicator .dot {
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background: var(--text-muted);
-    }
-
-    .live-indicator.connected {
-      border-color: var(--success);
-      color: var(--success);
-      background: rgba(63, 185, 80, 0.1);
-    }
-
-    .live-indicator.connected .dot {
-      background: var(--success);
-      box-shadow: 0 0 6px var(--success);
-      animation: pulse-dot 2s infinite ease-in-out;
-    }
-
-    @keyframes pulse-dot {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.4; transform: scale(0.85); }
-    }
-
-    .grid-summary {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 16px;
-      margin-bottom: 24px;
-    }
-
-    .stat-card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 8px;
-      padding: 16px;
-    }
-
-    .stat-card .label {
-      font-size: 12px;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      font-weight: 600;
-      letter-spacing: 0.5px;
-      margin-bottom: 6px;
-    }
-
-    .stat-card .value {
-      font-size: 22px;
-      font-weight: 700;
-      color: #f0f6fc;
-      font-family: var(--font-mono);
-    }
-
-    .golden-box {
-      background: rgba(210, 153, 34, 0.08);
-      border: 1px solid var(--warning);
-      border-radius: 8px;
-      padding: 16px;
-      margin-bottom: 24px;
-    }
-
-    .golden-box h3 {
-      font-size: 14px;
-      font-weight: 700;
-      color: var(--warning);
-      margin-bottom: 8px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .filter-bar {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 20px;
-      flex-wrap: wrap;
-      align-items: center;
-    }
-
-    .filter-btn {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      color: var(--text);
-      padding: 6px 14px;
-      border-radius: 6px;
-      font-size: 13px;
-      cursor: pointer;
-      transition: all 0.15s ease;
-    }
-
-    .filter-btn:hover, .filter-btn.active {
-      background: var(--accent);
-      color: #0d1117;
-      border-color: var(--accent);
-      font-weight: 600;
-    }
-
-    .search-input {
-      margin-left: auto;
-      background: var(--code-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 6px;
-      color: var(--text);
-      padding: 6px 12px;
-      font-size: 13px;
-      width: 250px;
-    }
-
-    .search-input:focus {
-      outline: none;
-      border-color: var(--accent);
-    }
-
-    .timeline {
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-    }
-
-    .event-card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 8px;
-      overflow: hidden;
-      transition: border-color 0.15s ease, transform 0.2s ease;
-    }
-
-    .event-card:hover {
-      border-color: #58a6ff66;
-    }
-
-    .event-card.new-flash {
-      border-color: var(--accent);
-      box-shadow: 0 0 10px rgba(88, 166, 255, 0.3);
-    }
-
-    .event-header {
-      padding: 12px 16px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      background: rgba(255, 255, 255, 0.02);
-      cursor: pointer;
-      user-select: none;
-    }
-
-    .event-index {
-      font-family: var(--font-mono);
-      font-size: 12px;
-      color: var(--text-muted);
-      min-width: 28px;
-    }
-
-    .event-time {
-      font-family: var(--font-mono);
-      font-size: 12px;
-      color: var(--text-muted);
-    }
-
-    .event-type {
-      font-size: 11px;
-      font-weight: 700;
-      text-transform: uppercase;
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-family: var(--font-mono);
-    }
-
-    .type-tool { background: rgba(88, 166, 255, 0.15); color: var(--accent); }
-    .type-prompt { background: rgba(188, 140, 255, 0.15); color: var(--purple); }
-    .type-file { background: rgba(63, 185, 80, 0.15); color: var(--success); }
-    .type-session { background: rgba(139, 148, 158, 0.15); color: var(--text-muted); }
-
-    .event-title {
-      font-weight: 600;
-      font-size: 14px;
-      color: #f0f6fc;
-      flex-grow: 1;
-    }
-
-    .event-duration {
-      font-family: var(--font-mono);
-      font-size: 12px;
-      color: var(--text-muted);
-    }
-
-    .event-body {
-      padding: 16px;
-      border-top: 1px solid var(--card-border);
-      display: none;
-    }
-
-    .event-card.expanded .event-body {
-      display: block;
-    }
-
-    .code-block {
-      background: var(--code-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 6px;
-      padding: 12px;
-      font-family: var(--font-mono);
-      font-size: 12px;
-      overflow-x: auto;
-      white-space: pre-wrap;
-      color: #e6edf3;
-      max-height: 400px;
-      overflow-y: auto;
-    }
-
-    .section-label {
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      color: var(--text-muted);
-      margin-bottom: 6px;
-      font-weight: 600;
-    }
-
-    /* File Diff Viewer Styling */
-    .file-diff-box {
-      margin-top: 12px;
-      border: 1px solid var(--card-border);
-      border-radius: 6px;
-      overflow: hidden;
-      background: var(--code-bg);
-    }
-
-    .diff-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 8px 12px;
-      background: #12161f;
-      border-bottom: 1px solid var(--card-border);
-      font-size: 12px;
-    }
-
-    .diff-filename {
-      font-weight: 600;
-      font-family: var(--font-mono);
-      color: #f0f6fc;
-    }
-
-    .diff-header-right {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .diff-badges {
-      display: flex;
-      gap: 6px;
-    }
-
-    .diff-badge {
-      font-family: var(--font-mono);
-      font-size: 11px;
-      font-weight: 700;
-      padding: 1px 6px;
-      border-radius: 4px;
-    }
-
-    .diff-badge-add { background: rgba(63, 185, 80, 0.2); color: var(--success); }
-    .diff-badge-del { background: rgba(248, 81, 73, 0.2); color: var(--danger); }
-    .diff-badge-trunc { background: rgba(210, 153, 34, 0.2); color: var(--warning); }
-
-    .diff-view-toggle {
-      display: inline-flex;
-      background: #1c2128;
-      border: 1px solid var(--card-border);
-      border-radius: 6px;
-      padding: 2px;
-      gap: 2px;
-    }
-
-    .diff-toggle-btn {
-      background: transparent;
-      border: none;
-      color: var(--text-muted);
-      font-family: var(--font-sans);
-      font-size: 11px;
-      font-weight: 600;
-      padding: 2px 8px;
-      border-radius: 4px;
-      cursor: pointer;
-      transition: all 0.15s ease;
-    }
-
-    .diff-toggle-btn:hover {
-      color: var(--text);
-    }
-
-    .diff-toggle-btn.active {
-      background: var(--accent);
-      color: #0d1117;
-      font-weight: 700;
-    }
-
-    /* Mode switching */
-    .file-diff-box.view-split .diff-split-container { display: block; }
-    .file-diff-box.view-split .diff-unified-container { display: none; }
-    .file-diff-box.view-unified .diff-split-container { display: none; }
-    .file-diff-box.view-unified .diff-unified-container { display: block; }
-
-    /* Side-by-Side Split Diff */
-    .diff-split-container {
-      overflow-x: auto;
-      max-height: 480px;
-      overflow-y: auto;
-      background: var(--code-bg);
-      font-family: var(--font-mono);
-      font-size: 12px;
-      line-height: 1.45;
-    }
-
-    .split-table {
-      display: flex;
-      flex-direction: column;
-      min-width: 600px;
-    }
-
-    .split-row {
-      display: flex;
-      width: 100%;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-    }
-
-    .split-row:hover {
-      background: rgba(255, 255, 255, 0.02);
-    }
-
-    .split-cell {
-      width: 50%;
-      display: flex;
-      align-items: stretch;
-      overflow-x: auto;
-      white-space: pre;
-    }
-
-    .split-left {
-      border-right: 1px solid var(--card-border);
-    }
-
-    .split-num {
-      width: 38px;
-      flex-shrink: 0;
-      text-align: right;
-      padding-right: 8px;
-      color: var(--text-muted);
-      user-select: none;
-      background: rgba(0, 0, 0, 0.2);
-    }
-
-    .split-gutter-symbol {
-      width: 16px;
-      flex-shrink: 0;
-      text-align: center;
-      user-select: none;
-      font-weight: 700;
-    }
-
-    .split-code {
-      flex-grow: 1;
-      padding-left: 4px;
-      padding-right: 8px;
-    }
-
-    .split-del {
-      background: rgba(248, 81, 73, 0.12);
-      color: #ffa198;
-    }
-
-    .split-del .split-gutter-symbol {
-      color: var(--danger);
-    }
-
-    .split-del .split-num {
-      color: rgba(248, 81, 73, 0.7);
-    }
-
-    .split-add {
-      background: rgba(63, 185, 80, 0.12);
-      color: #7ee787;
-    }
-
-    .split-add .split-gutter-symbol {
-      color: var(--success);
-    }
-
-    .split-add .split-num {
-      color: rgba(63, 185, 80, 0.7);
-    }
-
-    .split-empty {
-      background: rgba(0, 0, 0, 0.15);
-    }
-
-    .split-hunk, .split-truncated {
-      background: rgba(188, 140, 255, 0.08);
-      color: var(--purple);
-      padding: 3px 12px;
-      font-size: 11px;
-    }
-
-    .split-truncated {
-      background: rgba(210, 153, 34, 0.08);
-      color: var(--warning);
-    }
-
-    .split-cell-full {
-      width: 100%;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .diff-code-container {
-      font-family: var(--font-mono);
-      font-size: 12px;
-      line-height: 1.45;
-      overflow-x: auto;
-      max-height: 480px;
-      overflow-y: auto;
-    }
-
-    .diff-line {
-      display: flex;
-      padding: 1px 8px;
-      white-space: pre;
-    }
-
-    .diff-gutter {
-      width: 20px;
-      flex-shrink: 0;
-      user-select: none;
-      color: var(--text-muted);
-      text-align: center;
-    }
-
-    .diff-content {
-      flex-grow: 1;
-    }
-
-    .diff-add {
-      background: rgba(63, 185, 80, 0.12);
-      color: #7ee787;
-    }
-
-    .diff-add .diff-gutter {
-      color: var(--success);
-      font-weight: 700;
-    }
-
-    .diff-del {
-      background: rgba(248, 81, 73, 0.12);
-      color: #ffa198;
-    }
-
-    .diff-del .diff-gutter {
-      color: var(--danger);
-      font-weight: 700;
-    }
-
-    .diff-hunk {
-      background: rgba(188, 140, 255, 0.08);
-      color: var(--purple);
-      font-style: italic;
-    }
-
-    .diff-file-header {
-      background: rgba(255, 255, 255, 0.04);
-      color: var(--text-muted);
-    }
-
-    .diff-context {
-      color: var(--text);
-    }
-
-    .diff-truncated {
-      color: var(--warning);
-      font-style: italic;
-      background: rgba(210, 153, 34, 0.08);
-      padding: 4px 8px;
-    }
-
-    footer {
-      margin-top: 40px;
-      padding-top: 16px;
-      border-top: 1px solid var(--card-border);
-      display: flex;
-      justify-content: space-between;
-      color: var(--text-muted);
-      font-size: 12px;
-    }
+    ${VIEWER_CSS}
   </style>
 </head>
 <body>
@@ -636,6 +57,13 @@ export function generateTraceHtml(session: TraceSession, options: ViewerOptions 
       <span class="tagline">Trajectory & Regression Inspector</span>
     </div>
     <div class="header-actions">
+      ${options.sessionsList && options.sessionsList.length > 1 ? `
+      <div class="arena-launch-control">
+        <select class="arena-select" onchange="if(this.value) window.location.href = '/?sessions=${escapeHtml(session.id)},' + encodeURIComponent(this.value)">
+          <option value="">⚔️ Arena Mode (Compare Agents)...</option>
+          ${options.sessionsList.filter(s => s.id !== session.id).map(s => `<option value="${escapeHtml(s.id)}">vs ${escapeHtml(s.agent)} (${escapeHtml(s.id.length > 18 ? s.id.slice(0, 16) + '…' : s.id)})</option>`).join("")}
+        </select>
+      </div>` : ''}
       <span id="live-indicator" class="live-indicator ${isLive ? 'connected' : ''}" title="Real-time Server-Sent Events stream">
         <span class="dot"></span>
         <span id="live-text">${isLive ? 'LIVE' : 'OFFLINE'}</span>
@@ -706,7 +134,7 @@ export function generateTraceHtml(session: TraceSession, options: ViewerOptions 
   </div>
 
   <footer>
-    <span>Generated by TraceEval v0.0.4 (Local & Privacy-First)</span>
+    <span>Generated by TraceEval v0.0.5 (Local & Privacy-First)</span>
     <span>Real-time SSE Event Streaming & SQLite Indexing</span>
   </footer>
 
@@ -847,6 +275,330 @@ export function generateTraceHtml(session: TraceSession, options: ViewerOptions 
           }
         } catch (err) {
           console.error('[TraceEval SSE error]', err);
+        }
+      });
+    }
+  </script>
+</body>
+</html>`;
+}
+
+/**
+ * Generates the Multi-Agent Live Arena HTML view comparing multiple agent trajectories side-by-side.
+ */
+export function generateArenaHtml(sessions: TraceSession[], options: ViewerOptions = {}): string {
+  const { isLive = false, sessionsList = [] } = options;
+  const currentIds = new Set(sessions.map((s) => s.id));
+  const availableToAdd = sessionsList.filter((s) => !currentIds.has(s.id));
+
+  // Compute metrics per session
+  const sessionSummaries = sessions.map((s) => {
+    const toolCalls = s.events.filter((e) => e.type === "tool_call" || e.type === "tool_call_start");
+    const fileChanges = s.events.filter((e) => e.type === "file_change");
+    const totalCost = (s.metadata?.cost ?? s.metadata?.totalCost ?? 0) as number;
+    const totalTokens = (s.metadata?.tokens ?? s.metadata?.totalTokens ?? 0) as number;
+    const durationStr = s.durationMs !== undefined
+      ? `${s.durationMs}ms`
+      : (s.endTime ? `${new Date(s.endTime).getTime() - new Date(s.startTime).getTime()}ms` : "In progress");
+
+    return {
+      session: s,
+      toolCalls,
+      fileChanges,
+      totalCost,
+      totalTokens,
+      durationStr,
+    };
+  });
+
+  // Calculate comparison deltas if 2 sessions
+  let diffSummaryHtml = "";
+  if (sessionSummaries.length === 2) {
+    const s0 = sessionSummaries[0];
+    const s1 = sessionSummaries[1];
+    const stepDiff = s1.toolCalls.length - s0.toolCalls.length;
+    const stepText = stepDiff === 0
+      ? "Equal steps"
+      : (stepDiff > 0
+          ? `${s0.session.agent} was more step-efficient (-${stepDiff} steps)`
+          : `${s1.session.agent} was more step-efficient (-${Math.abs(stepDiff)} steps)`);
+
+    const dur0Ms = s0.session.durationMs || 0;
+    const dur1Ms = s1.session.durationMs || 0;
+    let durText = "";
+    if (dur0Ms > 0 && dur1Ms > 0) {
+      const durDiff = dur1Ms - dur0Ms;
+      durText = durDiff === 0
+        ? "Identical duration"
+        : (durDiff > 0
+            ? `${s0.session.agent} finished faster (${durDiff}ms quicker)`
+            : `${s1.session.agent} finished faster (${Math.abs(durDiff)}ms quicker)`);
+    }
+
+    diffSummaryHtml = `
+    <div class="scoreboard-card scoreboard-diff-card">
+      <div class="scoreboard-card-header">
+        <strong style="color: var(--accent); font-size: 13px;">⚔️ Direct Head-to-Head Delta</strong>
+        <span class="badge badge-active">Arena Delta</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px; font-size: 12px; margin-top: 6px;">
+        <div class="diff-item"><span>Efficiency:</span><strong>${escapeHtml(stepText)}</strong></div>
+        ${durText ? `<div class="diff-item"><span>Speed:</span><strong>${escapeHtml(durText)}</strong></div>` : ""}
+        <div class="diff-item"><span>Files Touched:</span><span>${escapeHtml(s0.session.agent)}: <strong>${s0.fileChanges.length}</strong> | ${escapeHtml(s1.session.agent)}: <strong>${s1.fileChanges.length}</strong></span></div>
+      </div>
+    </div>`;
+  }
+
+  // Render Scoreboard
+  const scoreboardHtml = `
+  <div class="arena-scoreboard">
+    ${sessionSummaries.map((info) => `
+      <div class="scoreboard-card">
+        <div class="scoreboard-card-header">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="agent-tag agent-${info.session.agent.toLowerCase()}">${escapeHtml(info.session.agent)}</span>
+            <span style="font-family: var(--font-mono); font-size: 12px; color: var(--text-muted);">${escapeHtml(info.session.id.length > 18 ? info.session.id.slice(0, 16) + '…' : info.session.id)}</span>
+          </div>
+          <span class="badge ${info.session.status === 'completed' ? 'badge-success' : (info.session.status === 'error' ? 'badge-error' : 'badge-active')}">
+            ${escapeHtml(info.session.status)}
+          </span>
+        </div>
+        <div class="scoreboard-metrics">
+          <div>
+            <div class="scoreboard-metric-label">Steps</div>
+            <div class="scoreboard-metric-val" id="score-steps-${escapeHtml(info.session.id)}">${info.toolCalls.length}</div>
+          </div>
+          <div>
+            <div class="scoreboard-metric-label">Duration</div>
+            <div class="scoreboard-metric-val" id="score-duration-${escapeHtml(info.session.id)}">${escapeHtml(info.durationStr)}</div>
+          </div>
+          <div>
+            <div class="scoreboard-metric-label">Files</div>
+            <div class="scoreboard-metric-val" id="score-files-${escapeHtml(info.session.id)}">${info.fileChanges.length}</div>
+          </div>
+        </div>
+        ${info.totalCost > 0 || info.totalTokens > 0 ? `
+        <div style="display: flex; justify-content: space-between; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--card-border); font-size: 11px; color: var(--text-muted);">
+          <span>Cost: <strong style="color: #f0f6fc;">$${info.totalCost.toFixed(4)}</strong></span>
+          <span>Tokens: <strong style="color: #f0f6fc;">${info.totalTokens.toLocaleString()}</strong></span>
+        </div>` : ""}
+      </div>
+    `).join("")}
+    ${diffSummaryHtml}
+  </div>`;
+
+  // Render Panes
+  const columnsCount = Math.min(Math.max(sessionSummaries.length, 1), 4);
+  const panesHtml = sessionSummaries.map((info) => `
+    <div class="arena-pane" id="pane-${escapeHtml(info.session.id)}" data-session-id="${escapeHtml(info.session.id)}">
+      <div class="arena-pane-header">
+        <div class="arena-pane-agent">
+          <span class="agent-tag agent-${info.session.agent.toLowerCase()}">${escapeHtml(info.session.agent)}</span>
+          <span class="arena-pane-id" title="${escapeHtml(info.session.id)}">${escapeHtml(info.session.id)}</span>
+        </div>
+        <div class="arena-pane-meta">
+          <span id="badge-${escapeHtml(info.session.id)}" class="badge ${info.session.status === 'completed' ? 'badge-success' : (info.session.status === 'error' ? 'badge-error' : 'badge-active')}">
+            ${escapeHtml(info.session.status)}
+          </span>
+          <button type="button" class="arena-unpin-btn" onclick="removeSession('${escapeHtml(info.session.id)}')" title="Remove agent from Arena">✕</button>
+        </div>
+      </div>
+      <div class="arena-pane-subbar">
+        <span><strong id="steps-${escapeHtml(info.session.id)}">${info.toolCalls.length}</strong> steps</span>
+        <span>•</span>
+        <span id="duration-${escapeHtml(info.session.id)}">${escapeHtml(info.durationStr)}</span>
+        <span>•</span>
+        <span><strong id="files-${escapeHtml(info.session.id)}">${info.fileChanges.length}</strong> files</span>
+        <span>•</span>
+        <span><strong id="events-${escapeHtml(info.session.id)}">${info.session.events.length}</strong> events</span>
+        <input type="text" class="pane-search" placeholder="Filter ${escapeHtml(info.session.agent)}..." oninput="filterPane('${escapeHtml(info.session.id)}', this.value)">
+      </div>
+      <div class="timeline" id="timeline-${escapeHtml(info.session.id)}">
+        ${info.session.events.map((evt, idx) => renderEventCardHtml(evt, idx + 1)).join("")}
+      </div>
+    </div>
+  `).join("\n");
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TraceEval ⚔️ Arena — Multi-Agent Live Trajectory Comparator</title>
+  <style>
+    ${VIEWER_CSS}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>TraceEval ⚔️ Arena</h1>
+      <span class="tagline">Multi-Agent Live Trajectory Comparator</span>
+    </div>
+    <div class="header-actions">
+      ${availableToAdd.length > 0 ? `
+      <select class="arena-select" onchange="if(this.value) addSession(this.value)">
+        <option value="">+ Add Agent to Arena...</option>
+        ${availableToAdd.map(s => `<option value="${escapeHtml(s.id)}">+ ${escapeHtml(s.agent)} (${escapeHtml(s.id.length > 18 ? s.id.slice(0, 16) + '…' : s.id)})</option>`).join("")}
+      </select>` : ''}
+      <a href="/?sessionId=${encodeURIComponent(sessions[0].id)}" style="color: var(--accent); font-size: 12px; text-decoration: none; padding: 4px 10px; border: 1px solid var(--card-border); border-radius: 6px; font-weight: 600;">Single View</a>
+      <span id="live-indicator" class="live-indicator ${isLive ? 'connected' : ''}" title="Real-time Server-Sent Events stream">
+        <span class="dot"></span>
+        <span id="live-text">${isLive ? 'LIVE' : 'OFFLINE'}</span>
+      </span>
+      <span class="badge badge-active">${sessions.length} Agents</span>
+    </div>
+  </header>
+
+  ${scoreboardHtml}
+
+  <div class="arena-columns" style="grid-template-columns: repeat(${columnsCount}, minmax(420px, 1fr));">
+    ${panesHtml}
+  </div>
+
+  <footer>
+    <span>Generated by TraceEval v0.0.5 (Local & Privacy-First) • Multi-Agent Live Arena</span>
+    <span>Side-by-side agent comparison with real-time SSE streaming</span>
+  </footer>
+
+  <script>
+    function toggleDiffView(btn, mode, event) {
+      if (event) event.stopPropagation();
+      const box = btn.closest('.file-diff-box');
+      if (!box) return;
+      box.classList.remove('view-split', 'view-unified');
+      box.classList.add('view-' + mode);
+      box.querySelectorAll('.diff-toggle-btn').forEach(b => {
+        if (b.getAttribute('data-mode') === mode) b.classList.add('active');
+        else b.classList.remove('active');
+      });
+    }
+    window.toggleDiffView = toggleDiffView;
+
+    function toggleCard(headerEl) {
+      const card = headerEl.closest('.event-card');
+      card.classList.toggle('expanded');
+    }
+
+    function addSession(newId) {
+      if (!newId) return;
+      const params = new URLSearchParams(window.location.search);
+      let list = params.get('sessions')
+        ? params.get('sessions').split(',').map(s => s.trim()).filter(Boolean)
+        : [${sessions.map((s) => JSON.stringify(s.id)).join(",")}];
+      if (!list.includes(newId)) {
+        list.push(newId);
+        params.set('sessions', list.join(','));
+        window.location.search = params.toString();
+      }
+    }
+    window.addSession = addSession;
+
+    function removeSession(id) {
+      const params = new URLSearchParams(window.location.search);
+      let list = params.get('sessions')
+        ? params.get('sessions').split(',').map(s => s.trim()).filter(Boolean)
+        : [${sessions.map((s) => JSON.stringify(s.id)).join(",")}];
+      list = list.filter(s => s !== id);
+      if (list.length > 0) {
+        params.set('sessions', list.join(','));
+        window.location.search = params.toString();
+      } else {
+        window.location.href = '/';
+      }
+    }
+    window.removeSession = removeSession;
+
+    function filterPane(sessionId, term) {
+      const t = (term || '').toLowerCase();
+      const timeline = document.getElementById('timeline-' + sessionId);
+      if (!timeline) return;
+      timeline.querySelectorAll('.event-card').forEach(card => {
+        const text = card.textContent.toLowerCase();
+        if (text.includes(t)) {
+          card.style.display = 'block';
+        } else {
+          card.style.display = 'none';
+        }
+      });
+    }
+    window.filterPane = filterPane;
+
+    // Real-Time Server-Sent Events (SSE) streaming
+    if (window.location.protocol.startsWith('http')) {
+      const evtSource = new EventSource('/events' + window.location.search);
+      const liveInd = document.getElementById('live-indicator');
+      const liveText = document.getElementById('live-text');
+
+      evtSource.onopen = () => {
+        if (liveInd) liveInd.classList.add('connected');
+        if (liveText) liveText.textContent = 'LIVE';
+      };
+
+      evtSource.onerror = () => {
+        if (liveInd) liveInd.classList.remove('connected');
+        if (liveText) liveText.textContent = 'RECONNECTING';
+      };
+
+      evtSource.addEventListener('trace_event', (e) => {
+        try {
+          const payload = JSON.parse(e.data);
+          if (!payload || !payload.id || !payload.sessionId) return;
+
+          // Deduplicate if card already exists
+          if (document.querySelector('.event-card[data-event-id="' + payload.id + '"]')) return;
+
+          const sid = payload.sessionId;
+          const timeline = document.getElementById('timeline-' + sid);
+          if (!timeline) return;
+
+          const isTool = payload.type === 'tool_call' || payload.type === 'tool_call_start';
+          const isFile = payload.type === 'file_change';
+
+          const stepsEl = document.getElementById('steps-' + sid);
+          if (stepsEl && isTool) {
+            stepsEl.textContent = String(parseInt(stepsEl.textContent || '0', 10) + 1);
+          }
+          const scoreStepsEl = document.getElementById('score-steps-' + sid);
+          if (scoreStepsEl && isTool) {
+            scoreStepsEl.textContent = String(parseInt(scoreStepsEl.textContent || '0', 10) + 1);
+          }
+
+          const filesEl = document.getElementById('files-' + sid);
+          if (filesEl && isFile) {
+            filesEl.textContent = String(parseInt(filesEl.textContent || '0', 10) + 1);
+          }
+          const scoreFilesEl = document.getElementById('score-files-' + sid);
+          if (scoreFilesEl && isFile) {
+            scoreFilesEl.textContent = String(parseInt(scoreFilesEl.textContent || '0', 10) + 1);
+          }
+
+          const eventsEl = document.getElementById('events-' + sid);
+          if (eventsEl) {
+            eventsEl.textContent = String(parseInt(eventsEl.textContent || '0', 10) + 1);
+          }
+
+          if (payload.type === 'session_end') {
+            const badge = document.getElementById('badge-' + sid);
+            if (badge) {
+              const status = payload.data?.status || 'completed';
+              badge.textContent = status;
+              badge.className = 'badge ' + (status === 'error' ? 'badge-error' : 'badge-success');
+            }
+          }
+
+          if (payload.html) {
+            const temp = document.createElement('div');
+            temp.innerHTML = payload.html.trim();
+            const newCard = temp.firstElementChild;
+            if (newCard) {
+              newCard.classList.add('new-flash');
+              timeline.appendChild(newCard);
+              setTimeout(() => newCard.classList.remove('new-flash'), 2000);
+            }
+          }
+        } catch (err) {
+          console.error('[TraceEval Arena SSE error]', err);
         }
       });
     }

@@ -4,6 +4,7 @@ import {
   parseUnifiedDiffToSplit,
   extractDiffFromEvent,
   renderDiffHtml,
+  computeIntraLineDiff,
 } from "../src/viewer/diff.js";
 import { TraceEvent } from "../src/types/index.js";
 
@@ -144,8 +145,35 @@ describe("Visual File Diff Engine", () => {
     expect(html).toContain('data-mode="unified"');
     expect(html).toContain("split-del");
     expect(html).toContain("split-add");
-    expect(html).toContain("const valid = false;");
-    expect(html).toContain("const valid = true;");
+
+    // Token-level intra-line highlights in both split and unified
+    expect(html).toContain('const valid = <span class="diff-word-del">false</span>;');
+    expect(html).toContain('const valid = <span class="diff-word-add">true</span>;');
+  });
+
+  it("should compute token-level intra-line diff highlighting accurately", () => {
+    // Single word change
+    const single = computeIntraLineDiff("const x = 10;", "const x = 20;");
+    expect(single.leftHtml).toBe('const x = <span class="diff-word-del">10</span>;');
+    expect(single.rightHtml).toBe('const x = <span class="diff-word-add">20</span>;');
+
+    // Multiple token changes in the same line
+    const multi = computeIntraLineDiff("call(foo, bar);", "call(baz, qux);");
+    expect(multi.leftHtml).toContain('<span class="diff-word-del">foo</span>');
+    expect(multi.leftHtml).toContain('<span class="diff-word-del">bar</span>');
+    expect(multi.rightHtml).toContain('<span class="diff-word-add">baz</span>');
+    expect(multi.rightHtml).toContain('<span class="diff-word-add">qux</span>');
+
+    // Identical lines
+    const identical = computeIntraLineDiff("console.log('hi');", "console.log('hi');");
+    expect(identical.leftHtml).toBe("console.log(&#039;hi&#039;);");
+    expect(identical.rightHtml).toBe("console.log(&#039;hi&#039;);");
+    expect(identical.leftHtml).not.toContain("diff-word");
+
+    // HTML entity escaping inside changed tokens
+    const htmlEsc = computeIntraLineDiff("<div>old</div>", "<div>new</div>");
+    expect(htmlEsc.leftHtml).toBe('&lt;div&gt;<span class="diff-word-del">old</span>&lt;/div&gt;');
+    expect(htmlEsc.rightHtml).toBe('&lt;div&gt;<span class="diff-word-add">new</span>&lt;/div&gt;');
   });
 
   it("should parse unified diff into aligned side-by-side split rows with accurate line numbers", () => {

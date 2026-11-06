@@ -253,26 +253,232 @@ function escapeHtml(str: string): string {
 }
 
 /**
- * Renders an interactive, syntax-styled HTML diff view with toggleable side-by-side split and unified views.
+ * Zero-dependency intra-line / token-level diff highlighter.
+ * Identifies modified words/tokens within paired deletion and addition lines.
+ */
+export function computeIntraLineDiff(
+  oldStr: string,
+  newStr: string
+): { leftHtml: string; rightHtml: string } {
+  if (oldStr === newStr) {
+    const escaped = escapeHtml(oldStr);
+    return { leftHtml: escaped, rightHtml: escaped };
+  }
+
+  // Tokenize preserving whitespace and delimiters
+  const tokenRegex = /(\s+|[a-zA-Z0-9_]+|[^\s\w])/g;
+  const oldTokens = oldStr.match(tokenRegex) || (oldStr ? [oldStr] : []);
+  const newTokens = newStr.match(tokenRegex) || (newStr ? [newStr] : []);
+
+  if (oldTokens.length === 0 || newTokens.length === 0) {
+    return { leftHtml: escapeHtml(oldStr), rightHtml: escapeHtml(newStr) };
+  }
+
+  // 1. Common prefix tokens
+  let start = 0;
+  while (
+    start < oldTokens.length &&
+    start < newTokens.length &&
+    oldTokens[start] === newTokens[start]
+  ) {
+    start++;
+  }
+
+  // 2. Common suffix tokens
+  let oldEnd = oldTokens.length - 1;
+  let newEnd = newTokens.length - 1;
+  while (
+    oldEnd >= start &&
+    newEnd >= start &&
+    oldTokens[oldEnd] === newTokens[newEnd]
+  ) {
+    oldEnd--;
+    newEnd--;
+  }
+
+  const prefixTokens = oldTokens.slice(0, start);
+  const suffixTokens = oldTokens.slice(oldEnd + 1);
+
+  const midOld = oldTokens.slice(start, oldEnd + 1);
+  const midNew = newTokens.slice(start, newEnd + 1);
+
+  // If the lines are completely distinct with zero common tokens, avoid full-line word wrapping
+  const commonCount = prefixTokens.length + suffixTokens.length;
+  const maxTokens = Math.max(oldTokens.length, newTokens.length);
+  if (commonCount === 0 && maxTokens > 3) {
+    return { leftHtml: escapeHtml(oldStr), rightHtml: escapeHtml(newStr) };
+  }
+
+  let oldHighlightTokens: { text: string; isDel: boolean }[] = [];
+  let newHighlightTokens: { text: string; isAdd: boolean }[] = [];
+
+  // Compute LCS on middle tokens if both sides have content
+  if (midOld.length > 0 && midNew.length > 0 && midOld.length <= 100 && midNew.length <= 100) {
+    const m = midOld.length;
+    const n = midNew.length;
+    const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+
+    for (let i = 0; i < m; i++) {
+      for (let j = 0; j < n; j++) {
+        if (midOld[i] === midNew[j]) {
+          dp[i + 1][j + 1] = dp[i][j] + 1;
+        } else {
+          dp[i + 1][j + 1] = Math.max(dp[i + 1][j], dp[i][j + 1]);
+        }
+      }
+    }
+
+    let i = m;
+    let j = n;
+    const oldParts: { text: string; isDel: boolean }[] = [];
+    const newParts: { text: string; isAdd: boolean }[] = [];
+
+    while (i > 0 || j > 0) {
+      if (i > 0 && j > 0 && midOld[i - 1] === midNew[j - 1]) {
+        oldParts.unshift({ text: midOld[i - 1], isDel: false });
+        newParts.unshift({ text: midNew[j - 1], isAdd: false });
+        i--;
+        j--;
+      } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+        newParts.unshift({ text: midNew[j - 1], isAdd: true });
+        j--;
+      } else if (i > 0 && (j === 0 || dp[i][j - 1] < dp[i - 1][j])) {
+        oldParts.unshift({ text: midOld[i - 1], isDel: true });
+        i--;
+      }
+    }
+    oldHighlightTokens = oldParts;
+    newHighlightTokens = newParts;
+  } else {
+    oldHighlightTokens = midOld.map((t) => ({ text: t, isDel: true }));
+    newHighlightTokens = midNew.map((t) => ({ text: t, isAdd: true }));
+  }
+
+  // Format tokens into HTML, grouping consecutive highlight spans
+  const formatTokens = (
+    tokens: { text: string; isHighlighted: boolean }[],
+    cssClass: string
+  ): string => {
+    let result = "";
+    let buffer = "";
+
+    for (const t of tokens) {
+      if (t.isHighlighted) {
+        buffer += t.text;
+      } else {
+        if (buffer) {
+          result += `<span class="${cssClass}">${escapeHtml(buffer)}</span>`;
+          buffer = "";
+        }
+        result += escapeHtml(t.text);
+      }
+    }
+    if (buffer) {
+      result += `<span class="${cssClass}">${escapeHtml(buffer)}</span>`;
+    }
+    return result;
+  };
+
+  const fullOld = [
+    ...prefixTokens.map((t) => ({ text: t, isHighlighted: false })),
+    ...oldHighlightTokens.map((t) => ({ text: t.text, isHighlighted: t.isDel })),
+    ...suffixTokens.map((t) => ({ text: t, isHighlighted: false })),
+  ];
+
+  const fullNew = [
+    ...prefixTokens.map((t) => ({ text: t, isHighlighted: false })),
+    ...newHighlightTokens.map((t) => ({ text: t.text, isHighlighted: t.isAdd })),
+    ...suffixTokens.map((t) => ({ text: t, isHighlighted: false })),
+  ];
+
+  return {
+    leftHtml: formatTokens(fullOld, "diff-word-del"),
+    rightHtml: formatTokens(fullNew, "diff-word-add"),
+  };
+}
+
+/**
+ * Renders an interactive, syntax-styled HTML diff view with toggleable side-by-side split and unified views,
+ * including zero-dependency intra-line / token-level diff highlighting.
  */
 export function renderDiffHtml(diff: ParsedDiff, defaultMode: "split" | "unified" = "split"): string {
   const lines = diff.diffText.split("\n");
   const renderedUnifiedLines: string[] = [];
 
-  for (const line of lines) {
-    const escaped = escapeHtml(line);
-    if (line.startsWith("+") && !line.startsWith("+++")) {
-      renderedUnifiedLines.push(`<div class="diff-line diff-add"><span class="diff-gutter">+</span><span class="diff-content">${escaped.slice(1)}</span></div>`);
-    } else if (line.startsWith("-") && !line.startsWith("---")) {
-      renderedUnifiedLines.push(`<div class="diff-line diff-del"><span class="diff-gutter">-</span><span class="diff-content">${escaped.slice(1)}</span></div>`);
+  let lineIdx = 0;
+  while (lineIdx < lines.length) {
+    const line = lines[lineIdx];
+
+    if (line.startsWith("-") && !line.startsWith("---")) {
+      // Gather consecutive del lines
+      const delLines: string[] = [];
+      while (lineIdx < lines.length && lines[lineIdx].startsWith("-") && !lines[lineIdx].startsWith("---")) {
+        delLines.push(lines[lineIdx].slice(1));
+        lineIdx++;
+      }
+
+      // Gather consecutive add lines immediately following
+      const addLines: string[] = [];
+      while (lineIdx < lines.length && lines[lineIdx].startsWith("+") && !lines[lineIdx].startsWith("+++")) {
+        addLines.push(lines[lineIdx].slice(1));
+        lineIdx++;
+      }
+
+      const pairs = Math.min(delLines.length, addLines.length);
+
+      // Render del lines with intra-line diff highlighting for paired rows
+      for (let k = 0; k < delLines.length; k++) {
+        let contentHtml: string;
+        if (k < pairs) {
+          const intra = computeIntraLineDiff(delLines[k], addLines[k]);
+          contentHtml = intra.leftHtml;
+        } else {
+          contentHtml = escapeHtml(delLines[k]);
+        }
+        renderedUnifiedLines.push(
+          `<div class="diff-line diff-del"><span class="diff-gutter">-</span><span class="diff-content">${contentHtml}</span></div>`
+        );
+      }
+
+      // Render add lines with intra-line diff highlighting for paired rows
+      for (let k = 0; k < addLines.length; k++) {
+        let contentHtml: string;
+        if (k < pairs) {
+          const intra = computeIntraLineDiff(delLines[k], addLines[k]);
+          contentHtml = intra.rightHtml;
+        } else {
+          contentHtml = escapeHtml(addLines[k]);
+        }
+        renderedUnifiedLines.push(
+          `<div class="diff-line diff-add"><span class="diff-gutter">+</span><span class="diff-content">${contentHtml}</span></div>`
+        );
+      }
+    } else if (line.startsWith("+") && !line.startsWith("+++")) {
+      renderedUnifiedLines.push(
+        `<div class="diff-line diff-add"><span class="diff-gutter">+</span><span class="diff-content">${escapeHtml(line.slice(1))}</span></div>`
+      );
+      lineIdx++;
     } else if (line.startsWith("@@")) {
-      renderedUnifiedLines.push(`<div class="diff-line diff-hunk"><span class="diff-gutter">@</span><span class="diff-content">${escaped}</span></div>`);
+      renderedUnifiedLines.push(
+        `<div class="diff-line diff-hunk"><span class="diff-gutter">@</span><span class="diff-content">${escapeHtml(line)}</span></div>`
+      );
+      lineIdx++;
     } else if (line.startsWith("---") || line.startsWith("+++")) {
-      renderedUnifiedLines.push(`<div class="diff-line diff-file-header"><span class="diff-gutter">#</span><span class="diff-content">${escaped}</span></div>`);
+      renderedUnifiedLines.push(
+        `<div class="diff-line diff-file-header"><span class="diff-gutter">#</span><span class="diff-content">${escapeHtml(line)}</span></div>`
+      );
+      lineIdx++;
     } else if (line.includes("[diff truncated:") || line.includes("Large file diff:")) {
-      renderedUnifiedLines.push(`<div class="diff-line diff-truncated"><span class="diff-gutter">…</span><span class="diff-content">${escaped}</span></div>`);
+      renderedUnifiedLines.push(
+        `<div class="diff-line diff-truncated"><span class="diff-gutter">…</span><span class="diff-content">${escapeHtml(line)}</span></div>`
+      );
+      lineIdx++;
     } else {
-      renderedUnifiedLines.push(`<div class="diff-line diff-context"><span class="diff-gutter">&nbsp;</span><span class="diff-content">${escaped.startsWith(" ") ? escaped.slice(1) : escaped}</span></div>`);
+      const content = line.startsWith(" ") ? line.slice(1) : line;
+      renderedUnifiedLines.push(
+        `<div class="diff-line diff-context"><span class="diff-gutter">&nbsp;</span><span class="diff-content">${escapeHtml(content)}</span></div>`
+      );
+      lineIdx++;
     }
   }
 
@@ -301,17 +507,27 @@ export function renderDiffHtml(diff: ParsedDiff, defaultMode: "split" | "unified
       const leftSign = row.left?.type === "del" ? "-" : "&nbsp;";
       const rightSign = row.right?.type === "add" ? "+" : "&nbsp;";
 
+      let leftCodeHtml = escapeHtml(row.left?.content || "");
+      let rightCodeHtml = escapeHtml(row.right?.content || "");
+
+      // Apply intra-line diff highlighting for paired modified rows
+      if (row.left?.type === "del" && row.right?.type === "add") {
+        const intra = computeIntraLineDiff(row.left.content, row.right.content);
+        leftCodeHtml = intra.leftHtml;
+        rightCodeHtml = intra.rightHtml;
+      }
+
       renderedSplitRows.push(
         `<div class="split-row">` +
           `<div class="split-cell split-left ${leftClass}">` +
             `<span class="split-num">${leftNum}</span>` +
             `<span class="split-gutter-symbol">${leftSign}</span>` +
-            `<span class="split-code">${escapeHtml(row.left?.content || "")}</span>` +
+            `<span class="split-code">${leftCodeHtml}</span>` +
           `</div>` +
           `<div class="split-cell split-right ${rightClass}">` +
             `<span class="split-num">${rightNum}</span>` +
             `<span class="split-gutter-symbol">${rightSign}</span>` +
-            `<span class="split-code">${escapeHtml(row.right?.content || "")}</span>` +
+            `<span class="split-code">${rightCodeHtml}</span>` +
           `</div>` +
         `</div>`
       );

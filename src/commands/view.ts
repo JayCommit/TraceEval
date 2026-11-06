@@ -4,9 +4,9 @@ import http from "node:http";
 import { exec } from "node:child_process";
 import pc from "picocolors";
 import { StorageManager } from "../storage/index.js";
-import { generateTraceHtml, renderEventCardHtml } from "../viewer/html.js";
+import { generateTraceHtml, generateArenaHtml, renderEventCardHtml } from "../viewer/html.js";
 import { compareWithGolden } from "../engine/differencer.js";
-import { TraceEvent } from "../types/index.js";
+import { TraceEvent, TraceSession } from "../types/index.js";
 
 export interface ViewOptions {
   latest?: boolean;
@@ -17,46 +17,84 @@ export interface ViewOptions {
   token?: string;
   golden?: string;
   openBrowser?: boolean;
+  sessions?: string[];
+  arena?: boolean;
 }
 
 /**
- * Creates an HTTP server supporting real-time Server-Sent Events (SSE) trace streaming.
+ * Creates an HTTP server supporting real-time Server-Sent Events (SSE) trace streaming
+ * for both single agent inspection and multi-agent live arena views.
  */
 export function createViewerServer(
   storage: StorageManager,
-  sessionId: string,
+  sessionIdOrIds: string | string[],
   options: { golden?: string; token?: string } = {}
 ): { server: http.Server; close: () => void } {
   const clients = new Set<http.ServerResponse>();
   const sentEventIds = new Set<string>();
 
-  const initialSession = storage.getSession(sessionId);
-  if (initialSession) {
-    for (const evt of initialSession.events) {
-      sentEventIds.add(evt.id);
+  const targetIds: string[] = Array.isArray(sessionIdOrIds)
+    ? sessionIdOrIds.map((s) => s.trim()).filter(Boolean)
+    : [sessionIdOrIds.trim()];
+
+  // Track initial sessions
+  const initialSessions: Record<string, TraceSession> = {};
+  for (const id of targetIds) {
+    const s = storage.getSession(id);
+    if (s) {
+      initialSessions[id] = s;
+      for (const evt of s.events) {
+        sentEventIds.add(evt.id);
+      }
     }
   }
 
-  const jsonlPath = storage.jsonl.getSessionFilePath(sessionId);
+  // Watch individual session JSONL files
+  const watchedFiles = new Map<string, () => void>();
 
-  // File watcher for new events streaming into JSONL
-  const fileListener = () => {
-    if (!fs.existsSync(jsonlPath)) return;
-    try {
-      const allEvents = storage.jsonl.readEvents(sessionId);
-      for (const evt of allEvents) {
-        if (!sentEventIds.has(evt.id)) {
-          sentEventIds.add(evt.id);
-          broadcastEvent(evt, sentEventIds.size);
+  const watchSessionFile = (sid: string) => {
+    const jsonlPath = storage.jsonl.getSessionFilePath(sid);
+    if (watchedFiles.has(jsonlPath)) return;
+
+    const listener = () => {
+      if (!fs.existsSync(jsonlPath)) return;
+      try {
+        const allEvents = storage.jsonl.readEvents(sid);
+        for (const evt of allEvents) {
+          if (!sentEventIds.has(evt.id)) {
+            sentEventIds.add(evt.id);
+            broadcastEvent(evt, sentEventIds.size);
+          }
         }
+      } catch {
+        // Non-blocking file reading
       }
-    } catch {
-      // Non-blocking file reading
+    };
+
+    if (fs.existsSync(jsonlPath)) {
+      fs.watchFile(jsonlPath, { interval: 200 }, listener);
+      watchedFiles.set(jsonlPath, listener);
     }
   };
 
-  if (fs.existsSync(jsonlPath)) {
-    fs.watchFile(jsonlPath, { interval: 200 }, fileListener);
+  for (const id of targetIds) {
+    watchSessionFile(id);
+  }
+
+  // Also watch traces directory for newly created sessions
+  let dirWatcher: fs.FSWatcher | null = null;
+  const tracesDir = path.join(storage.baseDir, "traces");
+  if (fs.existsSync(tracesDir)) {
+    try {
+      dirWatcher = fs.watch(tracesDir, (eventType, filename) => {
+        if (filename && filename.endsWith(".jsonl")) {
+          const sid = filename.slice(0, -6);
+          watchSessionFile(sid);
+        }
+      });
+    } catch {
+      // Ignore directory watch errors
+    }
   }
 
   function broadcastEvent(evt: TraceEvent, index: number): void {
@@ -64,6 +102,7 @@ export function createViewerServer(
     const payload = JSON.stringify({
       id: evt.id,
       sessionId: evt.sessionId,
+      agent: evt.agent,
       type: evt.type,
       timestamp: evt.timestamp,
       data: evt.data,
@@ -126,37 +165,82 @@ export function createViewerServer(
       return;
     }
 
-    // 2. REST API endpoint: /api/session
-    if (pathname === "/api/session") {
-      const current = storage.getSession(sessionId);
+    // 2. REST API endpoint: /api/sessions (list available sessions)
+    if (pathname === "/api/sessions") {
+      const allSessions = storage.listSessions(50);
       res.writeHead(200, {
         "Content-Type": "application/json; charset=utf-8",
         "Access-Control-Allow-Origin": "*",
       });
-      res.end(JSON.stringify(current));
+      res.end(JSON.stringify(allSessions));
       return;
     }
 
-    // 3. Main HTML view: /
-    const session = storage.getSession(sessionId) || initialSession;
-    if (!session) {
+    // 3. REST API endpoint: /api/session (specific session data)
+    if (pathname === "/api/session") {
+      const requestedId = urlObj.searchParams.get("id") || targetIds[0];
+      const current = storage.getSession(requestedId);
+      res.writeHead(200, {
+        "Content-Type": "application/json; charset=utf-8",
+        "Access-Control-Allow-Origin": "*",
+      });
+      res.end(JSON.stringify(current || null));
+      return;
+    }
+
+    // 4. Main HTML view: /
+    // Check if multiple sessions are requested via ?sessions=id1,id2
+    const querySessions = urlObj.searchParams
+      .get("sessions")
+      ?.split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const activeIds = querySessions && querySessions.length > 0 ? querySessions : targetIds;
+
+    // Ensure watchers for active sessions
+    for (const sid of activeIds) {
+      watchSessionFile(sid);
+    }
+
+    const activeSessions: TraceSession[] = [];
+    for (const sid of activeIds) {
+      const s = storage.getSession(sid) || initialSessions[sid];
+      if (s) activeSessions.push(s);
+    }
+
+    if (activeSessions.length === 0) {
       res.writeHead(404, { "Content-Type": "text/plain" });
-      res.end("Session not found");
+      res.end("Session(s) not found");
       return;
     }
 
+    const sessionsList = storage.listSessions(20);
+
+    // Multi-Agent Arena Mode
+    if (activeSessions.length > 1) {
+      const htmlContent = generateArenaHtml(activeSessions, {
+        sessionsList,
+        isLive: true,
+      });
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(htmlContent);
+      return;
+    }
+
+    // Single-Session View
+    const singleSession = activeSessions[0];
     let golden = null;
     let diff = null;
-    const goldenName = options.golden || (session.metadata?.testName as string);
+    const goldenName = options.golden || (singleSession.metadata?.testName as string);
     if (goldenName) {
       golden = storage.getGolden(goldenName);
       if (golden) {
-        diff = compareWithGolden(session, golden);
+        diff = compareWithGolden(singleSession, golden);
       }
     }
 
-    const sessionsList = storage.listSessions(10);
-    const htmlContent = generateTraceHtml(session, {
+    const htmlContent = generateTraceHtml(singleSession, {
       golden,
       diff,
       sessionsList,
@@ -170,13 +254,23 @@ export function createViewerServer(
   return {
     server,
     close: () => {
-      if (fs.existsSync(jsonlPath)) {
+      for (const [filePath, listener] of watchedFiles) {
         try {
-          fs.unwatchFile(jsonlPath, fileListener);
+          fs.unwatchFile(filePath, listener);
         } catch {
           // Ignore
         }
       }
+      watchedFiles.clear();
+
+      if (dirWatcher) {
+        try {
+          dirWatcher.close();
+        } catch {
+          // Ignore
+        }
+      }
+
       for (const client of clients) {
         try {
           client.end();
@@ -191,37 +285,55 @@ export function createViewerServer(
 }
 
 export async function runView(
-  sessionId?: string,
+  sessionIdOrIds?: string | string[],
   options: ViewOptions = {}
 ): Promise<void> {
   const storage = new StorageManager();
 
-  let targetId = sessionId;
-  if (!targetId || options.latest) {
+  let targetIds: string[] = [];
+  if (Array.isArray(sessionIdOrIds)) {
+    targetIds = sessionIdOrIds.map((s) => s.trim()).filter(Boolean);
+  } else if (typeof sessionIdOrIds === "string" && sessionIdOrIds.trim().length > 0) {
+    targetIds = sessionIdOrIds.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+
+  if (options.sessions && options.sessions.length > 0) {
+    for (const s of options.sessions) {
+      targetIds.push(...s.split(",").map((x) => x.trim()).filter(Boolean));
+    }
+  }
+  targetIds = Array.from(new Set(targetIds));
+
+  // If arena mode requested but fewer than 2 sessions specified, grab recent 2 sessions
+  if (options.arena && targetIds.length < 2) {
+    const recent = storage.listSessions(2);
+    targetIds = recent.map((s) => s.id);
+    if (targetIds.length === 0) {
+      console.log(pc.yellow("No recorded traces found. Record a session first with:"));
+      console.log(`  ${pc.cyan("traceeval record -- <command>")}`);
+      return;
+    }
+  }
+
+  if (targetIds.length === 0 || options.latest) {
     const latest = storage.getLatestSession();
     if (!latest) {
       console.log(pc.yellow("No recorded traces found. Record a session first with:"));
       console.log(`  ${pc.cyan("traceeval record -- <command>")}`);
       return;
     }
-    targetId = latest.id;
+    targetIds = [latest.id];
   }
 
-  const session = storage.getSession(targetId);
-  if (!session) {
-    console.error(pc.red(`Trace session '${targetId}' not found.`));
-    process.exit(1);
-  }
-
-  // Check for golden baseline
-  let golden = null;
-  let diff = null;
-  const goldenName = options.golden || (session.metadata?.testName as string);
-  if (goldenName) {
-    golden = storage.getGolden(goldenName);
-    if (golden) {
-      diff = compareWithGolden(session, golden);
+  // Load and validate sessions
+  const sessions: TraceSession[] = [];
+  for (const id of targetIds) {
+    const s = storage.getSession(id);
+    if (!s) {
+      console.error(pc.red(`Trace session '${id}' not found.`));
+      process.exit(1);
     }
+    sessions.push(s);
   }
 
   // Determine output mode
@@ -230,7 +342,7 @@ export async function runView(
     const port = Number(options.port || process.env.TRACEEVAL_PORT) || 4242;
     const token = options.token || process.env.TRACEEVAL_TOKEN;
 
-    const { server } = createViewerServer(storage, targetId, {
+    const { server } = createViewerServer(storage, targetIds, {
       golden: options.golden,
       token,
     });
@@ -238,14 +350,24 @@ export async function runView(
     server.listen(port, host, () => {
       const isAllInterfaces = host === "0.0.0.0" || host === "::";
       const displayHost = isAllInterfaces ? "localhost" : host;
-      const tokenParam = token ? `?token=${encodeURIComponent(token)}` : "";
-      const localUrl = `http://${displayHost}:${port}${tokenParam}`;
+      const tokenParam = token ? `token=${encodeURIComponent(token)}` : "";
+      const sessionsParam = sessions.length > 1 ? `sessions=${sessions.map((s) => s.id).join(",")}` : "";
+      const queryParts = [sessionsParam, tokenParam].filter(Boolean).join("&");
+      const queryStr = queryParts ? `?${queryParts}` : "";
+      const localUrl = `http://${displayHost}:${port}/${queryStr}`;
 
       console.log("");
-      console.log(pc.bold(pc.cyan("TraceEval HTML Viewer Live (Real-Time SSE Stream)")));
-      console.log(pc.dim("─".repeat(60)));
-      console.log(`  Session:    ${pc.green(targetId)}`);
-      console.log(`  URL:        ${pc.bold(pc.underline(pc.cyan(localUrl)))}`);
+      if (sessions.length > 1) {
+        console.log(pc.bold(pc.cyan("TraceEval Multi-Agent Live Arena ⚔️ (Real-Time SSE Stream)")));
+        console.log(pc.dim("─".repeat(65)));
+        console.log(`  Agents:     ${sessions.map((s) => `${pc.bold(s.agent)} (${pc.dim(s.id)})`).join(" vs ")}`);
+        console.log(`  Arena URL:  ${pc.bold(pc.underline(pc.cyan(localUrl)))}`);
+      } else {
+        console.log(pc.bold(pc.cyan("TraceEval HTML Viewer Live (Real-Time SSE Stream)")));
+        console.log(pc.dim("─".repeat(60)));
+        console.log(`  Session:    ${pc.green(sessions[0].id)} (${sessions[0].agent})`);
+        console.log(`  URL:        ${pc.bold(pc.underline(pc.cyan(localUrl)))}`);
+      }
       console.log(`  Bound Host: ${pc.yellow(host)} (port ${port})`);
       if (isAllInterfaces) {
         console.log(`  Remote:     ${pc.green("Enabled (accessible across LAN / Tailscale / network)")}`);
@@ -270,30 +392,57 @@ export async function runView(
     });
   } else {
     // Write to static file
-    const sessionsList = storage.listSessions(10);
-    const htmlContent = generateTraceHtml(session, {
-      golden,
-      diff,
-      sessionsList,
-      isLive: false,
-    });
+    const sessionsList = storage.listSessions(20);
+    let htmlContent: string;
+    let defaultFileName: string;
+
+    if (sessions.length > 1) {
+      htmlContent = generateArenaHtml(sessions, {
+        sessionsList,
+        isLive: false,
+      });
+      defaultFileName = `arena-${sessions.map((s) => s.id).join("-vs-")}.html`;
+    } else {
+      let golden = null;
+      let diff = null;
+      const goldenName = options.golden || (sessions[0].metadata?.testName as string);
+      if (goldenName) {
+        golden = storage.getGolden(goldenName);
+        if (golden) {
+          diff = compareWithGolden(sessions[0], golden);
+        }
+      }
+      htmlContent = generateTraceHtml(sessions[0], {
+        golden,
+        diff,
+        sessionsList,
+        isLive: false,
+      });
+      defaultFileName = `trace-${sessions[0].id}.html`;
+    }
 
     const outputPath = options.output
       ? path.resolve(process.cwd(), options.output)
-      : path.resolve(process.cwd(), ".traceeval", `trace-${targetId}.html`);
+      : path.resolve(process.cwd(), ".traceeval", defaultFileName);
 
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
     fs.writeFileSync(outputPath, htmlContent, "utf-8");
 
     console.log("");
-    console.log(pc.bold(pc.green("✔ Trace HTML Viewer generated:")));
-    console.log(`  File:    ${pc.cyan(outputPath)}`);
-    console.log(`  Session: ${pc.dim(targetId)}`);
+    if (sessions.length > 1) {
+      console.log(pc.bold(pc.green("✔ Multi-Agent Arena HTML Viewer generated:")));
+      console.log(`  File:    ${pc.cyan(outputPath)}`);
+      console.log(`  Agents:  ${sessions.map((s) => `${s.agent} (${s.id})`).join(" vs ")}`);
+    } else {
+      console.log(pc.bold(pc.green("✔ Trace HTML Viewer generated:")));
+      console.log(`  File:    ${pc.cyan(outputPath)}`);
+      console.log(`  Session: ${pc.dim(sessions[0].id)}`);
+    }
     console.log("");
     console.log(`Open in browser:`);
     console.log(
       `  ${pc.dim(`open "${outputPath}"`)} or stream live with ${pc.cyan(
-        `traceeval view ${targetId} --serve`
+        `traceeval view ${sessions.map((s) => s.id).join(" ")} --serve`
       )}`
     );
     console.log("");

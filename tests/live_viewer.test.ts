@@ -5,6 +5,7 @@ import os from "node:os";
 import http from "node:http";
 import { StorageManager } from "../src/storage/index.js";
 import { createViewerServer } from "../src/commands/view.js";
+import { generateArenaHtml } from "../src/viewer/html.js";
 
 describe("Live Real-Time Viewer Server & SSE Streaming", () => {
   let tmpDir: string;
@@ -208,5 +209,101 @@ describe("Live Real-Time Viewer Server & SSE Streaming", () => {
     } finally {
       close();
     }
+  });
+
+  it("should serve Multi-Agent Arena layout when initialized with multiple sessions", async () => {
+    const sessionB = "test-session-agent-b";
+    storage.upsertSession({
+      id: sessionB,
+      agent: "claude-code",
+      startTime: new Date().toISOString(),
+      status: "completed",
+    });
+
+    const { server, close } = createViewerServer(storage, [sessionId, sessionB]);
+
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const port = (server.address() as any).port;
+
+    try {
+      // 1. GET / should return Arena mode
+      const res = await fetch(`http://localhost:${port}/`);
+      expect(res.status).toBe(200);
+      const html = await res.text();
+      expect(html).toContain("TraceEval ⚔️ Arena");
+      expect(html).toContain("cursor");
+      expect(html).toContain("claude-code");
+      expect(html).toContain(`pane-${sessionId}`);
+      expect(html).toContain(`pane-${sessionB}`);
+      expect(html).toContain("arena-scoreboard");
+      expect(html).toContain("Direct Head-to-Head Delta");
+
+      // 2. GET /api/sessions should list all recorded sessions
+      const resList = await fetch(`http://localhost:${port}/api/sessions`);
+      expect(resList.status).toBe(200);
+      const list = await resList.json();
+      expect(Array.isArray(list)).toBe(true);
+      expect(list.some((s: any) => s.id === sessionId)).toBe(true);
+      expect(list.some((s: any) => s.id === sessionB)).toBe(true);
+    } finally {
+      close();
+    }
+  });
+
+  it("should switch between single session and arena mode via ?sessions query param", async () => {
+    const session2 = "sess-param-switch-2";
+    storage.upsertSession({
+      id: session2,
+      agent: "openai",
+      startTime: new Date().toISOString(),
+      status: "completed",
+    });
+
+    const { server, close } = createViewerServer(storage, sessionId);
+
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const port = (server.address() as any).port;
+
+    try {
+      // Single session default
+      const resSingle = await fetch(`http://localhost:${port}/`);
+      const singleHtml = await resSingle.text();
+      expect(singleHtml).toContain("Arena Mode (Compare Agents)");
+      expect(singleHtml).not.toContain('class="arena-columns"');
+
+      // Query param activates Arena
+      const resArena = await fetch(`http://localhost:${port}/?sessions=${sessionId},${session2}`);
+      const arenaHtml = await resArena.text();
+      expect(arenaHtml).toContain("TraceEval ⚔️ Arena");
+      expect(arenaHtml).toContain('class="arena-columns"');
+      expect(arenaHtml).toContain("cursor");
+      expect(arenaHtml).toContain("openai");
+    } finally {
+      close();
+    }
+  });
+
+  it("should generate static Multi-Agent Arena HTML correctly via generateArenaHtml", () => {
+    const sessA = {
+      id: "agent-a-sess",
+      agent: "claude-code",
+      startTime: new Date().toISOString(),
+      status: "completed" as const,
+      events: [],
+    };
+    const sessB = {
+      id: "agent-b-sess",
+      agent: "cursor",
+      startTime: new Date().toISOString(),
+      status: "completed" as const,
+      events: [],
+    };
+
+    const html = generateArenaHtml([sessA, sessB]);
+    expect(html).toContain("TraceEval ⚔️ Arena");
+    expect(html).toContain("agent-a-sess");
+    expect(html).toContain("agent-b-sess");
+    expect(html).toContain("arena-scoreboard");
+    expect(html).toContain("Direct Head-to-Head Delta");
   });
 });

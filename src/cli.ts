@@ -21,7 +21,7 @@ const program = new Command();
 program
   .name("traceeval")
   .description("TraceEval — Local-first evaluation and regression testing for AI coding agents")
-  .version("0.0.4")
+  .version("0.0.5")
   .enablePositionalOptions();
 
 // Command: init
@@ -189,9 +189,11 @@ tracesCmd
 
 // Command: view
 program
-  .command("view [sessionId]")
+  .command("view [sessionIds...]")
   .description("View interactive HTML trace timeline, side-by-side file diffs, and real-time live events")
   .option("-l, --latest", "View the most recent session")
+  .option("-a, --arena", "Open multi-agent live arena view comparing sessions side-by-side")
+  .option("--sessions <list>", "Comma-separated list of session IDs to view or compare in the arena")
   .option("-o, --output <file>", "Save HTML to specific file path")
   .option("-s, --serve", "Serve viewer via local HTTP server with real-time SSE streaming")
   .option("-H, --host <host>", "Host address to bind server (default: '127.0.0.1'; use '0.0.0.0' for remote/network access)")
@@ -199,15 +201,43 @@ program
   .option("--token <secret>", "Optional access token for remote authentication")
   .option("-g, --golden <test-name>", "Golden baseline test name to compare against")
   .option("--no-open", "Do not automatically launch browser window on serve")
-  .action(async (sessionId, options) => {
-    await runView(sessionId, {
+  .action(async (sessionIds, options) => {
+    const list = options.sessions ? options.sessions.split(",") : undefined;
+    await runView(sessionIds, {
       latest: options.latest,
+      arena: options.arena,
+      sessions: list,
       output: options.output,
       serve: options.serve,
       host: options.host,
       port: options.port,
       token: options.token,
       golden: options.golden,
+      openBrowser: options.open,
+    });
+  });
+
+// Command: arena
+program
+  .command("arena [sessionIds...]")
+  .description("Launch the Multi-Agent Live Arena to compare agent trajectories side-by-side")
+  .option("-s, --sessions <list>", "Comma-separated list of session IDs to compare in the arena")
+  .option("-o, --output <file>", "Export static arena HTML report to specific file path without starting server")
+  .option("-H, --host <host>", "Host address to bind server (default: '127.0.0.1'; use '0.0.0.0' for remote/network access)")
+  .option("-p, --port <number>", "Port for local HTTP server", "4242")
+  .option("--token <secret>", "Optional access token for remote authentication")
+  .option("--no-open", "Do not automatically launch browser window on serve")
+  .action(async (sessionIds, options) => {
+    const list = options.sessions ? options.sessions.split(",") : undefined;
+    const isStatic = Boolean(options.output);
+    await runView(sessionIds, {
+      sessions: list,
+      serve: !isStatic,
+      arena: true,
+      output: options.output,
+      host: options.host,
+      port: options.port,
+      token: options.token,
       openBrowser: options.open,
     });
   });

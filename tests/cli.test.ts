@@ -280,5 +280,35 @@ assertions:
     const parsedSpecs = JSON.parse(specsJson);
     expect(Array.isArray(parsedSpecs)).toBe(true);
     expect(parsedSpecs.length).toBeGreaterThan(0);
+
+    // Test Multi-Agent Arena CLI: traceeval view <sess1> <sess2> -o ./arena.html
+    execSync(`node "${cliPath}" record -s arena-sess-1 -- echo "agent 1"`, { cwd: tmpDir });
+    execSync(`node "${cliPath}" record -s arena-sess-2 -- echo "agent 2"`, { cwd: tmpDir });
+
+    const arenaViewOutput = execSync(`node "${cliPath}" view arena-sess-1 arena-sess-2 -o ./arena.html`, {
+      cwd: tmpDir,
+      encoding: "utf-8",
+    });
+    expect(arenaViewOutput).toContain("Multi-Agent Arena HTML Viewer generated");
+    expect(fs.existsSync(path.join(tmpDir, "arena.html"))).toBe(true);
+    const arenaHtml = fs.readFileSync(path.join(tmpDir, "arena.html"), "utf-8");
+    expect(arenaHtml).toContain("TraceEval ⚔️ Arena");
+    expect(arenaHtml).toContain("arena-sess-1");
+    expect(arenaHtml).toContain("arena-sess-2");
+
+    // Test traceeval arena -o ./arena-auto.html
+    const arenaAutoOutput = execSync(`node "${cliPath}" arena -o ./arena-auto.html`, {
+      cwd: tmpDir,
+      encoding: "utf-8",
+    });
+    expect(arenaAutoOutput).toContain("Multi-Agent Arena HTML Viewer generated");
+    expect(fs.existsSync(path.join(tmpDir, "arena-auto.html"))).toBe(true);
+
+    // Test CLI version
+    const versionOutput = execSync(`node "${cliPath}" --version`, {
+      cwd: tmpDir,
+      encoding: "utf-8",
+    }).trim();
+    expect(versionOutput).toBe("0.0.5");
   });
 });

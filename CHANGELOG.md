@@ -5,6 +5,49 @@ All notable changes to TraceEval will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.5] - 2026-11-06
+
+### Multi-Agent Live Arena & Intra-Line Token-Level Diff Highlighting
+
+#### ⚔️ Multi-Agent Live Arena
+- **Simultaneous Multi-Agent Live Trajectory View**: Added the ability to inspect multiple agent sessions side-by-side in real-time (e.g. Claude Code vs Cursor executing the same or competing tasks).
+- **Dedicated `traceeval arena` CLI Command**:
+  - `traceeval arena [sessionIds...]` automatically launches the real-time SSE streaming viewer server in Arena mode.
+  - Automatically selects the two most recent runs if no specific session IDs are passed.
+  - Accepts variadic arguments: `traceeval arena session-claude session-cursor` or `traceeval view session-1 session-2 --serve`.
+- **Dynamic Head-to-Head Scoreboard**: Top-level comparison scoreboard calculating:
+  - Step counts, runtime durations, dollar costs, total tokens, and files touched per agent.
+  - Direct Head-to-Head Delta comparison highlighting efficiency differences and runtime speed advantages.
+- **Independent Multi-Pane Columns**:
+  - CSS Grid multi-column layout with agent-specific color branding (Claude, Cursor, OpenAI/ChatGPT, Grok, Grok Bot, Antigravity, OpenCode).
+  - Per-pane status badges, live event counts, step counters, and independent search filters.
+- **Real-Time Multi-Session SSE Streaming**: Server-Sent Events stream updates tagged with `sessionId`, appending new tool calls, diff cards, and step counts to the corresponding agent pane live without page refreshes.
+- **Interactive Browser Controls**:
+  - In-browser "Add Agent to Arena" dropdown populated from recent workspace traces to dynamically pin additional agents.
+  - Pane unpin controls (`✕`) to remove agents on the fly.
+  - Quick-switch "Compare in Arena" selector in single-session view allowing instant side-by-side transitions via `?sessions=id1,id2`.
+- **Graceful Single-Session Fallback**: Automatically degrades to standard full-width single-session inspection when only one session is active.
+- **Offline Static Arena Export**: `traceeval arena [sessionIds...] -o arena.html` exports self-contained offline arena reports for sharing and CI artifacts.
+
+#### 🔍 Intra-Line / Token-Level Diff Highlighting
+- **Word & Character-Level Diff Highlighting**: Changed lines now highlight the exact modified words and tokens within lines, rather than just highlighting full lines (`computeIntraLineDiff` in `src/viewer/diff.ts`).
+- **Zero-Dependency LCS Token Differ**:
+  - Tokenizes lines preserving all whitespace and delimiters.
+  - Computes Longest Common Subsequence on changed middle tokens while preserving common prefixes and suffixes.
+  - Prevents noisy whole-line highlighting when two lines share minimal similarity.
+- **Split & Unified View Parity**: Integrated across both Side-by-Side Split View and Unified Diff View.
+- **High-Contrast Dark Theme Aesthetics**: Styled with `.diff-word-del` and `.diff-word-add` high-contrast badges matching GitHub and VS Code diff editors.
+- **Truncation & Line Number Preservation**: Preserves exact unified diff hunk line numbering and large-diff safety guards (> 300 lines).
+- **Full Offline & Live Support**: Operates identically in static HTML exports and live SSE streaming mode.
+
+#### 🛠 Architecture & Performance Polish
+- **Shared Stylesheet Extraction**: Extracted `src/viewer/styles.ts` (`VIEWER_CSS`), eliminating hundreds of lines of duplicated CSS between single and arena views.
+- **Traces Directory Watcher**: Added directory watching on `.traceeval/traces` so newly started agent sessions are detected and streamed live without restarting the viewer server.
+- **REST API Endpoint (`/api/sessions`)**: Added `/api/sessions` returning recent session metadata to power dynamic UI selectors.
+- **Expanded Test Suite**: Added 11 new unit and integration tests across intra-line diff highlights, multi-agent arena layout, dynamic query parameter switching, and CLI commands (181 tests passing across 24 test files).
+
+---
+
 ## [0.0.4] - 2026-11-06
 
 ### Side-by-Side Diffs, Remote Streaming & Architecture Hardening
