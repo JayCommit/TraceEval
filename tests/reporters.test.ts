@@ -132,20 +132,21 @@ describe("Reporters & Regression Output", () => {
 
       // Normal mode
       const termOutput = formatTerminalReport(suite, tmpDir);
-      expect(termOutput).toContain("⚠ REGRESSION");
-      expect(termOutput).toContain("Baseline Comparison:");
-      expect(termOutput).toContain("steps 10 -> 15 (+5 [+50.0%])");
-      expect(termOutput).toContain("Duration drift:");
-      expect(termOutput).toContain("1000ms -> 1400ms (+400ms [+40.0%])");
-      expect(termOutput).toContain("Cost drift:");
-      expect(termOutput).toContain("+$0.0050 [+33.3%]");
-      expect(termOutput).toContain("Tool usage delta:");
-      expect(termOutput).toContain("+2 Bash calls, -1 Edit call, +1 WebSearch call");
-      expect(termOutput).toContain("new: [WebSearch]");
-      expect(termOutput).toContain("⚠ REGRESSION DETECTED");
-      expect(termOutput).toContain("Step count increased by 50.0%");
-      expect(termOutput).toContain("Disallowed tool 'WebSearch' was invoked");
-      expect(termOutput).toContain("Status:   REGRESSION DETECTED");
+      const cleanTerm = termOutput.replace(/\u001b\[[0-9;]*m/g, "");
+      expect(cleanTerm).toContain("⚠ REGRESSION");
+      expect(cleanTerm).toContain("Baseline Comparison:");
+      expect(cleanTerm).toContain("steps 10 -> 15 (+5 [+50.0%])");
+      expect(cleanTerm).toContain("Duration drift:");
+      expect(cleanTerm).toContain("1000ms -> 1400ms (+400ms [+40.0%])");
+      expect(cleanTerm).toContain("Cost drift:");
+      expect(cleanTerm).toContain("+$0.0050 [+33.3%]");
+      expect(cleanTerm).toContain("Tool usage delta:");
+      expect(cleanTerm).toContain("+2 Bash calls, -1 Edit call, +1 WebSearch call");
+      expect(cleanTerm).toContain("new: [WebSearch]");
+      expect(cleanTerm).toContain("⚠ REGRESSION DETECTED");
+      expect(cleanTerm).toContain("Step count increased by 50.0%");
+      expect(cleanTerm).toContain("Disallowed tool 'WebSearch' was invoked");
+      expect(cleanTerm).toContain("Status:   REGRESSION DETECTED");
 
       // CI mode
       const ciOutput = formatTerminalReport(suite, { cwd: tmpDir, ci: true });

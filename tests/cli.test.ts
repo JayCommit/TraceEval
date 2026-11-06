@@ -191,13 +191,14 @@ assertions:
       failureOutput = (err.stdout?.toString() || "") + (err.stderr?.toString() || "");
     }
 
-    expect(failureOutput).toContain("TESTS FAILED");
-    expect(failureOutput).toContain("[file_exists] Missing file must exist");
-    expect(failureOutput).toContain("Expected: File 'src/does-not-exist.ts' to exist");
-    expect(failureOutput).toContain("Actual:   File does not exist: src/does-not-exist.ts");
-    expect(failureOutput).toContain("[file_contains] File must contain expected string");
-    expect(failureOutput).toContain("[file_contains] No TODO comments allowed");
-    expect(failureOutput).toContain("line 2: \"// TODO: broken logic\"");
+    const cleanOutput = failureOutput.replace(/\u001b\[[0-9;]*m/g, "");
+    expect(cleanOutput).toContain("TESTS FAILED");
+    expect(cleanOutput).toContain("[file_exists] Missing file must exist");
+    expect(cleanOutput).toContain("Expected: File 'src/does-not-exist.ts' to exist");
+    expect(cleanOutput).toContain("Actual:   File does not exist: src/does-not-exist.ts");
+    expect(cleanOutput).toContain("[file_contains] File must contain expected string");
+    expect(cleanOutput).toContain("[file_contains] No TODO comments allowed");
+    expect(cleanOutput).toContain("line 2: \"// TODO: broken logic\"");
   });
 
   it("should support --json output format and --output file flag", () => {
