@@ -27,3 +27,7 @@ export * from "./viewer/diff.js";
 export * from "./commands/view.js";
 export * from "./engine/specs.js";
 export * from "./mcp/server.js";
+export * from "./viewer/semantic.js";
+export * from "./viewer/websocket.js";
+export * from "./engine/control.js";
+export * from "./commands/bench.js";

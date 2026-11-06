@@ -9,6 +9,7 @@ import { runTracesList, runTracesShow, runTracesDiff } from "./commands/traces.j
 import { runView } from "./commands/view.js";
 import { runSpecs } from "./commands/specs.js";
 import { runMcpServer } from "./commands/mcp.js";
+import { runBenchmark } from "./commands/bench.js";
 import {
   runUpdateGolden,
   runGoldenList,
@@ -21,7 +22,7 @@ const program = new Command();
 program
   .name("traceeval")
   .description("TraceEval — Local-first evaluation and regression testing for AI coding agents")
-  .version("0.0.5")
+  .version("0.0.6")
   .enablePositionalOptions();
 
 // Command: init
@@ -220,14 +221,35 @@ program
 // Command: arena
 program
   .command("arena [sessionIds...]")
-  .description("Launch the Multi-Agent Live Arena to compare agent trajectories side-by-side")
+  .description("Launch the Multi-Agent Live Arena or start automated multi-agent benchmarks")
+  .option("-l, --launch", "Automatically launch multiple agents in isolated workspaces")
+  .option("-a, --agents <list>", "Agents to launch when --launch is specified (default: 'claude,cursor')")
+  .option("-p, --prompt <string>", "Task prompt for agents when --launch is specified")
+  .option("-t, --test <path>", "Path to test spec YAML to run as benchmark")
+  .option("--cmd <template>", "Command template when --launch is specified")
   .option("-s, --sessions <list>", "Comma-separated list of session IDs to compare in the arena")
   .option("-o, --output <file>", "Export static arena HTML report to specific file path without starting server")
   .option("-H, --host <host>", "Host address to bind server (default: '127.0.0.1'; use '0.0.0.0' for remote/network access)")
-  .option("-p, --port <number>", "Port for local HTTP server", "4242")
+  .option("--port <number>", "Port for local HTTP server", "4242")
   .option("--token <secret>", "Optional access token for remote authentication")
+  .option("--no-serve", "Do not start local HTTP server")
   .option("--no-open", "Do not automatically launch browser window on serve")
   .action(async (sessionIds, options) => {
+    if (options.launch) {
+      await runBenchmark({
+        agents: options.agents,
+        prompt: options.prompt,
+        test: options.test,
+        cmd: options.cmd,
+        serve: options.serve,
+        host: options.host,
+        port: options.port,
+        token: options.token,
+        openBrowser: options.open,
+        output: options.output,
+      });
+      return;
+    }
     const list = options.sessions ? options.sessions.split(",") : undefined;
     const isStatic = Boolean(options.output);
     await runView(sessionIds, {
@@ -239,6 +261,42 @@ program
       port: options.port,
       token: options.token,
       openBrowser: options.open,
+    });
+  });
+
+// Command: bench
+program
+  .command("bench")
+  .description("Automate multi-agent benchmark launching in isolated workspaces against a prompt or test")
+  .option("-a, --agents <list>", "Comma-separated list of agents to launch (default: 'claude,cursor')")
+  .option("-p, --prompt <string>", "Task prompt for all agents")
+  .option("-t, --test <path>", "Path to test spec YAML to run as benchmark")
+  .option("--cmd <template>", "Command template for invoking agents ({agent} and {prompt})")
+  .option("--commands <json>", "JSON mapping of agent names to explicit command lines")
+  .option("--timeout <ms>", "Execution timeout in milliseconds", "120000")
+  .option("--no-parallel", "Run agents sequentially instead of in parallel")
+  .option("-s, --serve", "Start local HTTP streaming server in Arena mode", true)
+  .option("--no-serve", "Do not start local HTTP server")
+  .option("--no-open", "Do not automatically launch browser window")
+  .option("-H, --host <host>", "Host address to bind server (default: '127.0.0.1')")
+  .option("--port <number>", "Port for local HTTP server", "4242")
+  .option("--token <secret>", "Optional access token for remote authentication")
+  .option("-o, --output <file>", "Export static arena HTML report to file path")
+  .action(async (options) => {
+    await runBenchmark({
+      agents: options.agents,
+      prompt: options.prompt,
+      test: options.test,
+      cmd: options.cmd,
+      commands: options.commands,
+      timeout: options.timeout,
+      parallel: options.parallel,
+      serve: options.serve,
+      openBrowser: options.open,
+      host: options.host,
+      port: options.port,
+      token: options.token,
+      output: options.output,
     });
   });
 

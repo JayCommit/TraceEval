@@ -309,6 +309,29 @@ assertions:
       cwd: tmpDir,
       encoding: "utf-8",
     }).trim();
-    expect(versionOutput).toBe("0.0.5");
+    expect(versionOutput).toBe("0.0.6");
+
+    // Test traceeval bench --no-serve with simulated command
+    const benchOutput = execSync(
+      `node "${cliPath}" bench --agents claude,cursor --cmd "echo 'done'" --no-serve -o ./arena-bench.html`,
+      {
+        cwd: tmpDir,
+        encoding: "utf-8",
+      }
+    );
+    expect(benchOutput).toContain("Automated Multi-Agent Benchmark Launch");
+    expect(benchOutput).toContain("Head-to-Head Results");
+    expect(fs.existsSync(path.join(tmpDir, "arena-bench.html"))).toBe(true);
+
+    // Test traceeval arena --launch with simulated command
+    const arenaLaunchOutput = execSync(
+      `node "${cliPath}" arena --launch --agents claude,cursor --cmd "echo 'done'" --no-serve`,
+      {
+        cwd: tmpDir,
+        encoding: "utf-8",
+      }
+    );
+    expect(arenaLaunchOutput).toContain("Automated Multi-Agent Benchmark Launch");
+    expect(arenaLaunchOutput).toContain("Head-to-Head Results");
   });
 });

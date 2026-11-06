@@ -1,4 +1,10 @@
 import { TraceEvent } from "../types/index.js";
+import {
+  analyzeSemanticDiff,
+  SemanticDiffReport,
+} from "./semantic.js";
+
+export * from "./semantic.js";
 
 export interface ParsedDiff {
   filename: string;
@@ -6,6 +12,7 @@ export interface ParsedDiff {
   additions: number;
   deletions: number;
   isTruncated: boolean;
+  semanticReport?: SemanticDiffReport;
 }
 
 export interface SplitDiffRow {
@@ -175,6 +182,7 @@ export function extractDiffFromEvent(
   const data = event.data || {};
   let filename = (data.path || data.file || data.filePath || "file") as string;
   let diffRaw: string | undefined;
+  let semanticReport: SemanticDiffReport | undefined;
 
   // 1. Direct diff or patch fields
   if (typeof data.diff === "string" && data.diff.trim().length > 0) {
@@ -186,6 +194,7 @@ export function extractDiffFromEvent(
   // 2. Before / After content fields
   if (!diffRaw && typeof data.before === "string" && typeof data.after === "string") {
     diffRaw = computeUnifiedDiff(data.before, data.after, filename);
+    semanticReport = analyzeSemanticDiff(data.before, data.after, filename);
   }
 
   // 3. Tool call inputs (e.g. str_replace_editor, Edit, edit_file)
@@ -199,11 +208,17 @@ export function extractDiffFromEvent(
 
     if (typeof oldStr === "string" && typeof newStr === "string") {
       diffRaw = computeUnifiedDiff(oldStr, newStr, filename);
+      semanticReport = analyzeSemanticDiff(oldStr, newStr, filename);
     }
   }
 
   if (!diffRaw || !diffRaw.trim()) {
     return null;
+  }
+
+  // If semanticReport was not yet generated but data.before and data.after exist
+  if (!semanticReport && typeof data.before === "string" && typeof data.after === "string") {
+    semanticReport = analyzeSemanticDiff(data.before, data.after, filename);
   }
 
   const rawLines = diffRaw.split("\n");
@@ -237,6 +252,7 @@ export function extractDiffFromEvent(
     additions,
     deletions,
     isTruncated,
+    semanticReport,
   };
 }
 
@@ -517,6 +533,20 @@ export function renderDiffHtml(diff: ParsedDiff, defaultMode: "split" | "unified
         rightCodeHtml = intra.rightHtml;
       }
 
+      let semanticTagHtml = "";
+      if (diff.semanticReport && row.right?.lineNum) {
+        const line = row.right.lineNum;
+        const isMoved = diff.semanticReport.movedBlocks.some(
+          (m) => line >= m.newStartLine && line <= m.newEndLine
+        );
+        const isSig = diff.semanticReport.signatureChanges.some((s) => s.line === line);
+        if (isMoved) {
+          semanticTagHtml = `<span class="split-semantic-tag pill-moved" title="Part of moved code block">⇄ MOVED</span>`;
+        } else if (isSig) {
+          semanticTagHtml = `<span class="split-semantic-tag pill-sig" title="Modified signature / parameters">✎ SIGNATURE</span>`;
+        }
+      }
+
       renderedSplitRows.push(
         `<div class="split-row">` +
           `<div class="split-cell split-left ${leftClass}">` +
@@ -527,10 +557,58 @@ export function renderDiffHtml(diff: ParsedDiff, defaultMode: "split" | "unified
           `<div class="split-cell split-right ${rightClass}">` +
             `<span class="split-num">${rightNum}</span>` +
             `<span class="split-gutter-symbol">${rightSign}</span>` +
-            `<span class="split-code">${rightCodeHtml}</span>` +
+            `<span class="split-code">${rightCodeHtml}${semanticTagHtml}</span>` +
           `</div>` +
         `</div>`
       );
+    }
+  }
+
+  let semanticBannerHtml = "";
+  if (diff.semanticReport && diff.semanticReport.hasStructuralChanges) {
+    const pills: string[] = [];
+
+    for (const m of diff.semanticReport.movedBlocks) {
+      pills.push(
+        `<span class="semantic-pill pill-moved" title="Moved from lines ${m.oldStartLine}–${m.oldEndLine} to ${m.newStartLine}–${m.newEndLine} (similarity: ${Math.round(m.similarity * 100)}%)">⇄ Moved: ${escapeHtml(m.name)} (L${m.oldStartLine}→L${m.newStartLine})</span>`
+      );
+    }
+
+    for (const s of diff.semanticReport.signatureChanges) {
+      pills.push(
+        `<span class="semantic-pill pill-sig" title="Old: ${escapeHtml(s.oldSig)} &#10;New: ${escapeHtml(s.newSig)}">✎ Signature: ${escapeHtml(s.name)}(${escapeHtml(s.newParams || "")})</span>`
+      );
+    }
+
+    for (const r of diff.semanticReport.renamedIdentifiers) {
+      pills.push(
+        `<span class="semantic-pill pill-rename" title="Renamed identifier in ${escapeHtml(r.scope || "file")}">🔤 Renamed: ${escapeHtml(r.oldName)} → ${escapeHtml(r.newName)} (${r.count}x)</span>`
+      );
+    }
+
+    for (const a of diff.semanticReport.addedDeclarations) {
+      pills.push(
+        `<span class="semantic-pill pill-added" title="Added at line ${a.line}">✚ Added: ${escapeHtml(a.kind)} ${escapeHtml(a.name)}</span>`
+      );
+    }
+
+    for (const d of diff.semanticReport.removedDeclarations) {
+      pills.push(
+        `<span class="semantic-pill pill-removed" title="Removed from line ${d.line}">✖ Removed: ${escapeHtml(d.kind)} ${escapeHtml(d.name)}</span>`
+      );
+    }
+
+    if (pills.length > 0) {
+      semanticBannerHtml = `
+    <div class="diff-semantic-banner">
+      <div class="semantic-banner-header">
+        <span class="semantic-banner-title">🧠 AST Structural Changes</span>
+        <span class="semantic-banner-count">${pills.length}</span>
+      </div>
+      <div class="semantic-pills">
+        ${pills.join("\n        ")}
+      </div>
+    </div>`;
     }
   }
 
@@ -550,6 +628,7 @@ export function renderDiffHtml(diff: ParsedDiff, defaultMode: "split" | "unified
         </div>
       </div>
     </div>
+    ${semanticBannerHtml}
     <div class="diff-split-container">
       <div class="split-table">
         ${renderedSplitRows.join("\n")}

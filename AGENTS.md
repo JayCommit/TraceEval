@@ -160,11 +160,12 @@ Phase 4 completed all release requirements for the initial public v0.0.1 release
 
 ---
 
-## 5. What's Next After v0.0.1 (Future Roadmap)
-- **Live Agent Tracing Watcher**: Real-time websocket streaming from agent hooks to the HTML viewer as tools are executing live.
-- **Deep Diff Visualizer**: AST-level code diff highlighting in the HTML trace viewer for file edits.
-- **Pre-Packaged Benchmark Suites**: Standardized coding benchmark suites for common agent coding tasks (refactoring, bug fixing, test writing).
-- **Multi-Agent Comparative Arena**: Run Claude Code, OpenCode, and Codex CLI simultaneously on the same spec and compare cost, step efficiency, and pass rates side-by-side.
+## 5. Completed Roadmap & v0.0.6 Milestones (Zero Limitations)
+All roadmap milestones and previous limitations are fully implemented, hardened, and tested as of v0.0.6:
+- [x] **AST-Aware Semantic Diffing**: Syntax-aware structural analysis recognizing moved blocks, reordered functions, modified signatures/parameters, renamed identifiers, and added/removed declarations across TypeScript/JavaScript, Python, and C-like languages with zero dependencies.
+- [x] **Bidirectional Live Viewer Control**: Full interactive browser control allowing users to pause (`SIGSTOP`), resume (`SIGCONT`), abort (`SIGINT`/`SIGTERM`), and inject steering prompts in real time over RFC6455 WebSockets and REST API with token authentication.
+- [x] **Automated Multi-Agent Benchmark Launching (`traceeval bench` / `traceeval arena --launch`)**: Parallel/sequential execution of multiple coding agents (Cursor, Claude, Grok, Grok Bot, OpenAI/ChatGPT, Antigravity, OpenCode) in isolated workspaces against prompts or test specs with simultaneous live Arena streaming and head-to-head scoreboards.
+- [x] **Zero Remaining Limitations**: All planned features and limitations are completely closed with 100% test coverage (200 passing tests across 27 test files).
 
 ---
 

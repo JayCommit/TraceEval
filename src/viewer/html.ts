@@ -107,6 +107,18 @@ export function generateTraceHtml(session: TraceSession, options: ViewerOptions 
     </div>` : ''}
   </div>
 
+  <div class="session-control-bar" id="control-bar-${escapeHtml(session.id)}" data-session-id="${escapeHtml(session.id)}">
+    <div class="control-bar-left">
+      <span class="control-bar-title">⚡ Session Control</span>
+      <button type="button" class="ctrl-btn ctrl-btn-pause" id="btn-pause-${escapeHtml(session.id)}" onclick="controlSession('${escapeHtml(session.id)}', 'pause')">⏸ Pause</button>
+      <button type="button" class="ctrl-btn ctrl-btn-abort" id="btn-abort-${escapeHtml(session.id)}" onclick="controlSession('${escapeHtml(session.id)}', 'abort')">⏹ Abort</button>
+    </div>
+    <div class="control-bar-right">
+      <input type="text" class="ctrl-inject-input" id="inject-input-${escapeHtml(session.id)}" placeholder="Inject prompt / steering message..." onkeydown="if(event.key==='Enter') injectSessionPrompt('${escapeHtml(session.id)}')" />
+      <button type="button" class="ctrl-btn ctrl-btn-inject" onclick="injectSessionPrompt('${escapeHtml(session.id)}')">Inject</button>
+    </div>
+  </div>
+
   ${golden ? `
   <div class="golden-box">
     <h3>🏆 Golden Baseline: ${escapeHtml(golden.testName)}</h3>
@@ -219,65 +231,182 @@ export function generateTraceHtml(session: TraceSession, options: ViewerOptions 
       let currentStepCount = ${toolCalls.length};
       let currentFileCount = ${fileChanges.length};
 
+      function handleIncomingTraceEvent(payload) {
+        if (!payload || !payload.id) return;
+
+        // Deduplicate if already present
+        if (document.querySelector('.event-card[data-event-id="' + payload.id + '"]')) {
+          return;
+        }
+
+        currentEventCount++;
+        const isTool = payload.type === 'tool_call' || payload.type === 'tool_call_start';
+        const isFile = payload.type === 'file_change';
+        if (isTool) currentStepCount++;
+        if (isFile) currentFileCount++;
+
+        // Update header counters
+        const statEvents = document.getElementById('stat-events');
+        if (statEvents) statEvents.textContent = currentEventCount;
+
+        const statSteps = document.getElementById('stat-steps');
+        if (statSteps) statSteps.textContent = currentStepCount;
+
+        const countAll = document.getElementById('count-all');
+        if (countAll) countAll.textContent = currentEventCount;
+
+        const countTool = document.getElementById('count-tool');
+        if (countTool) countTool.textContent = currentStepCount;
+
+        const countFile = document.getElementById('count-file');
+        if (countFile) countFile.textContent = currentFileCount;
+
+        // Dynamic status updates on control events
+        const badge = document.getElementById('status-badge');
+        const btnPause = document.getElementById('btn-pause-${escapeHtml(session.id)}');
+        const btnAbort = document.getElementById('btn-abort-${escapeHtml(session.id)}');
+
+        if (payload.type === 'session_pause') {
+          if (badge) { badge.textContent = 'PAUSED'; badge.className = 'badge badge-paused'; }
+          if (btnPause) { btnPause.textContent = '▶ Resume'; btnPause.classList.add('resumed'); }
+          showToast('Session paused');
+        } else if (payload.type === 'session_resume') {
+          if (badge) { badge.textContent = 'ACTIVE'; badge.className = 'badge badge-active'; }
+          if (btnPause) { btnPause.textContent = '⏸ Pause'; btnPause.classList.remove('resumed'); }
+          showToast('Session resumed');
+        } else if (payload.type === 'session_abort') {
+          if (badge) { badge.textContent = 'ABORTED'; badge.className = 'badge badge-aborted'; }
+          if (btnPause) btnPause.disabled = true;
+          if (btnAbort) btnAbort.disabled = true;
+          showToast('Session aborted');
+        } else if (payload.type === 'session_end') {
+          if (badge) {
+            const status = payload.data?.status || 'completed';
+            badge.textContent = status;
+            badge.className = 'badge ' + (status === 'error' ? 'badge-error' : 'badge-success');
+          }
+        }
+
+        // Append new card into DOM
+        const timeline = document.getElementById('timeline');
+        if (timeline && payload.html) {
+          const temp = document.createElement('div');
+          temp.innerHTML = payload.html.trim();
+          const newCard = temp.firstElementChild;
+          if (newCard) {
+            newCard.classList.add('new-flash');
+            timeline.appendChild(newCard);
+            setTimeout(() => newCard.classList.remove('new-flash'), 2000);
+          }
+        }
+      }
+
       evtSource.addEventListener('trace_event', (e) => {
         try {
           const payload = JSON.parse(e.data);
-          if (!payload || !payload.id) return;
-
-          // Deduplicate if already present
-          if (document.querySelector('.event-card[data-event-id="' + payload.id + '"]')) {
-            return;
-          }
-
-          currentEventCount++;
-          const isTool = payload.type === 'tool_call' || payload.type === 'tool_call_start';
-          const isFile = payload.type === 'file_change';
-          if (isTool) currentStepCount++;
-          if (isFile) currentFileCount++;
-
-          // Update header counters
-          const statEvents = document.getElementById('stat-events');
-          if (statEvents) statEvents.textContent = currentEventCount;
-
-          const statSteps = document.getElementById('stat-steps');
-          if (statSteps) statSteps.textContent = currentStepCount;
-
-          const countAll = document.getElementById('count-all');
-          if (countAll) countAll.textContent = currentEventCount;
-
-          const countTool = document.getElementById('count-tool');
-          if (countTool) countTool.textContent = currentStepCount;
-
-          const countFile = document.getElementById('count-file');
-          if (countFile) countFile.textContent = currentFileCount;
-
-          // If session end event arrived, update status badge
-          if (payload.type === 'session_end') {
-            const badge = document.getElementById('status-badge');
-            if (badge) {
-              const status = payload.data?.status || 'completed';
-              badge.textContent = status;
-              badge.className = 'badge ' + (status === 'error' ? 'badge-error' : 'badge-success');
-            }
-          }
-
-          // Append new card into DOM
-          const timeline = document.getElementById('timeline');
-          if (timeline && payload.html) {
-            const temp = document.createElement('div');
-            temp.innerHTML = payload.html.trim();
-            const newCard = temp.firstElementChild;
-            if (newCard) {
-              newCard.classList.add('new-flash');
-              timeline.appendChild(newCard);
-              setTimeout(() => newCard.classList.remove('new-flash'), 2000);
-            }
-          }
+          handleIncomingTraceEvent(payload);
         } catch (err) {
           console.error('[TraceEval SSE error]', err);
         }
       });
+
+      // WebSocket bidirectional stream & control
+      let ws = null;
+      function initWebSocket() {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = protocol + '//' + window.location.host + '/ws' + window.location.search;
+        try {
+          ws = new WebSocket(wsUrl);
+          ws.onmessage = (event) => {
+            try {
+              const msg = JSON.parse(event.data);
+              if (msg.event === 'trace_event' && msg.data) {
+                handleIncomingTraceEvent(msg.data);
+              }
+            } catch (err) {}
+          };
+          ws.onclose = () => { setTimeout(initWebSocket, 4000); };
+        } catch (err) {}
+      }
+      initWebSocket();
     }
+
+    function showToast(message) {
+      let toast = document.getElementById('ctrl-toast');
+      if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'ctrl-toast';
+        toast.className = 'ctrl-toast';
+        document.body.appendChild(toast);
+      }
+      toast.textContent = message;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2500);
+    }
+    window.showToast = showToast;
+
+    async function controlSession(sessionId, action) {
+      const btnPause = document.getElementById('btn-pause-' + sessionId);
+      const isCurrentlyPaused = btnPause && btnPause.classList.contains('resumed');
+      const effectiveAction = (action === 'pause' && isCurrentlyPaused) ? 'resume' : action;
+
+      try {
+        const res = await fetch('/api/control', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: effectiveAction, sessionId })
+        });
+        const data = await res.json();
+        if (data.success) {
+          if (effectiveAction === 'pause') {
+            if (btnPause) { btnPause.textContent = '▶ Resume'; btnPause.classList.add('resumed'); }
+            const badge = document.getElementById('status-badge');
+            if (badge) { badge.textContent = 'PAUSED'; badge.className = 'badge badge-paused'; }
+          } else if (effectiveAction === 'resume') {
+            if (btnPause) { btnPause.textContent = '⏸ Pause'; btnPause.classList.remove('resumed'); }
+            const badge = document.getElementById('status-badge');
+            if (badge) { badge.textContent = 'ACTIVE'; badge.className = 'badge badge-active'; }
+          } else if (effectiveAction === 'abort') {
+            const btnAbort = document.getElementById('btn-abort-' + sessionId);
+            if (btnAbort) btnAbort.disabled = true;
+            if (btnPause) btnPause.disabled = true;
+            const badge = document.getElementById('status-badge');
+            if (badge) { badge.textContent = 'ABORTED'; badge.className = 'badge badge-aborted'; }
+          }
+          showToast('Session ' + effectiveAction + ' command sent');
+        } else {
+          showToast('Control error: ' + (data.error || 'Failed'));
+        }
+      } catch (err) {
+        showToast('Control error: ' + err.message);
+      }
+    }
+    window.controlSession = controlSession;
+
+    async function injectSessionPrompt(sessionId) {
+      const input = document.getElementById('inject-input-' + sessionId);
+      if (!input) return;
+      const prompt = input.value.trim();
+      if (!prompt) return;
+
+      try {
+        const res = await fetch('/api/control', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'inject', sessionId, message: prompt })
+        });
+        const data = await res.json();
+        if (data.success) {
+          input.value = '';
+          showToast('Prompt injected into session');
+        } else {
+          showToast('Injection error: ' + (data.error || 'Failed'));
+        }
+      } catch (err) {
+        showToast('Injection error: ' + err.message);
+      }
+    }
+    window.injectSessionPrompt = injectSessionPrompt;
   </script>
 </body>
 </html>`;
@@ -412,6 +541,12 @@ export function generateArenaHtml(sessions: TraceSession[], options: ViewerOptio
         <span>•</span>
         <span><strong id="events-${escapeHtml(info.session.id)}">${info.session.events.length}</strong> events</span>
         <input type="text" class="pane-search" placeholder="Filter ${escapeHtml(info.session.agent)}..." oninput="filterPane('${escapeHtml(info.session.id)}', this.value)">
+      </div>
+      <div class="arena-control-bar" id="control-bar-${escapeHtml(info.session.id)}">
+        <button type="button" class="ctrl-btn ctrl-btn-sm ctrl-btn-pause" id="btn-pause-${escapeHtml(info.session.id)}" onclick="controlSession('${escapeHtml(info.session.id)}', 'pause')">⏸ Pause</button>
+        <button type="button" class="ctrl-btn ctrl-btn-sm ctrl-btn-abort" id="btn-abort-${escapeHtml(info.session.id)}" onclick="controlSession('${escapeHtml(info.session.id)}', 'abort')">⏹ Abort</button>
+        <input type="text" class="ctrl-inject-input ctrl-inject-sm" id="inject-input-${escapeHtml(info.session.id)}" placeholder="Inject prompt..." onkeydown="if(event.key==='Enter') injectSessionPrompt('${escapeHtml(info.session.id)}')" />
+        <button type="button" class="ctrl-btn ctrl-btn-sm ctrl-btn-inject" onclick="injectSessionPrompt('${escapeHtml(info.session.id)}')">Inject</button>
       </div>
       <div class="timeline" id="timeline-${escapeHtml(info.session.id)}">
         ${info.session.events.map((evt, idx) => renderEventCardHtml(evt, idx + 1)).join("")}
@@ -578,7 +713,27 @@ export function generateArenaHtml(sessions: TraceSession[], options: ViewerOptio
             eventsEl.textContent = String(parseInt(eventsEl.textContent || '0', 10) + 1);
           }
 
-          if (payload.type === 'session_end') {
+          if (payload.type === 'session_pause') {
+            const badge = document.getElementById('badge-' + sid);
+            const btnPause = document.getElementById('btn-pause-' + sid);
+            if (badge) { badge.textContent = 'PAUSED'; badge.className = 'badge badge-paused'; }
+            if (btnPause) { btnPause.textContent = '▶ Resume'; btnPause.classList.add('resumed'); }
+            showToast('Agent ' + sid.slice(0, 8) + ' paused');
+          } else if (payload.type === 'session_resume') {
+            const badge = document.getElementById('badge-' + sid);
+            const btnPause = document.getElementById('btn-pause-' + sid);
+            if (badge) { badge.textContent = 'ACTIVE'; badge.className = 'badge badge-active'; }
+            if (btnPause) { btnPause.textContent = '⏸ Pause'; btnPause.classList.remove('resumed'); }
+            showToast('Agent ' + sid.slice(0, 8) + ' resumed');
+          } else if (payload.type === 'session_abort') {
+            const badge = document.getElementById('badge-' + sid);
+            const btnAbort = document.getElementById('btn-abort-' + sid);
+            const btnPause = document.getElementById('btn-pause-' + sid);
+            if (badge) { badge.textContent = 'ABORTED'; badge.className = 'badge badge-aborted'; }
+            if (btnAbort) btnAbort.disabled = true;
+            if (btnPause) btnPause.disabled = true;
+            showToast('Agent ' + sid.slice(0, 8) + ' aborted');
+          } else if (payload.type === 'session_end') {
             const badge = document.getElementById('badge-' + sid);
             if (badge) {
               const status = payload.data?.status || 'completed';
@@ -601,6 +756,96 @@ export function generateArenaHtml(sessions: TraceSession[], options: ViewerOptio
           console.error('[TraceEval Arena SSE error]', err);
         }
       });
+
+      // WebSocket bidirectional stream & control
+      let ws = null;
+      function initWebSocket() {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = protocol + '//' + window.location.host + '/ws' + window.location.search;
+        try {
+          ws = new WebSocket(wsUrl);
+          ws.onclose = () => { setTimeout(initWebSocket, 4000); };
+        } catch (err) {}
+      }
+      initWebSocket();
+    }
+
+    function showToast(message) {
+      let toast = document.getElementById('ctrl-toast');
+      if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'ctrl-toast';
+        toast.className = 'ctrl-toast';
+        document.body.appendChild(toast);
+      }
+      toast.textContent = message;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2500);
+    }
+    window.showToast = showToast;
+
+    async function controlSession(sessionId, action) {
+      const btnPause = document.getElementById('btn-pause-' + sessionId);
+      const isCurrentlyPaused = btnPause && btnPause.classList.contains('resumed');
+      const effectiveAction = (action === 'pause' && isCurrentlyPaused) ? 'resume' : action;
+
+      try {
+        const res = await fetch('/api/control', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: effectiveAction, sessionId })
+        });
+        const data = await res.json();
+        if (data.success) {
+          if (effectiveAction === 'pause') {
+            if (btnPause) { btnPause.textContent = '▶ Resume'; btnPause.classList.add('resumed'); }
+            const badge = document.getElementById('badge-' + sessionId);
+            if (badge) { badge.textContent = 'PAUSED'; badge.className = 'badge badge-paused'; }
+          } else if (effectiveAction === 'resume') {
+            if (btnPause) { btnPause.textContent = '⏸ Pause'; btnPause.classList.remove('resumed'); }
+            const badge = document.getElementById('badge-' + sessionId);
+            if (badge) { badge.textContent = 'ACTIVE'; badge.className = 'badge badge-active'; }
+          } else if (effectiveAction === 'abort') {
+            const btnAbort = document.getElementById('btn-abort-' + sessionId);
+            if (btnAbort) btnAbort.disabled = true;
+            if (btnPause) btnPause.disabled = true;
+            const badge = document.getElementById('badge-' + sessionId);
+            if (badge) { badge.textContent = 'ABORTED'; badge.className = 'badge badge-aborted'; }
+          }
+          showToast('Session ' + effectiveAction + ' command sent');
+        } else {
+          showToast('Control error: ' + (data.error || 'Failed'));
+        }
+      } catch (err) {
+        showToast('Control error: ' + err.message);
+      }
+    }
+    window.controlSession = controlSession;
+
+    async function injectSessionPrompt(sessionId) {
+      const input = document.getElementById('inject-input-' + sessionId);
+      if (!input) return;
+      const prompt = input.value.trim();
+      if (!prompt) return;
+
+      try {
+        const res = await fetch('/api/control', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'inject', sessionId, message: prompt })
+        });
+        const data = await res.json();
+        if (data.success) {
+          input.value = '';
+          showToast('Prompt injected into session');
+        } else {
+          showToast('Injection error: ' + (data.error || 'Failed'));
+        }
+      } catch (err) {
+        showToast('Injection error: ' + err.message);
+      }
+    }
+    window.injectSessionPrompt = injectSessionPrompt;
     }
   </script>
 </body>
@@ -613,7 +858,8 @@ export function generateArenaHtml(sessions: TraceSession[], options: ViewerOptio
 export function renderEventCardHtml(evt: TraceEvent, index: number): string {
   const isTool = evt.type === "tool_call" || evt.type === "tool_call_start";
   const isFile = evt.type === "file_change";
-  const isPrompt = evt.type === "user_prompt";
+  const isPrompt = evt.type === "user_prompt" || evt.type === "injected_prompt";
+  const isControl = evt.type === "session_pause" || evt.type === "session_resume" || evt.type === "session_abort";
   const category = isTool ? "tool" : (isFile ? "file" : (isPrompt ? "prompt" : "session"));
   const time = evt.timestamp.split("T")[1]?.slice(0, 8) || evt.timestamp;
 
@@ -623,9 +869,18 @@ export function renderEventCardHtml(evt: TraceEvent, index: number): string {
     title = `Tool Call: ${escapeHtml(toolName)}`;
   } else if (isFile) {
     title = `File Change: ${escapeHtml(evt.data?.path || "File")}`;
+  } else if (evt.type === "injected_prompt") {
+    const promptPreview = String(evt.data?.prompt || "").slice(0, 70);
+    title = `⚡ Injected Prompt: "${escapeHtml(promptPreview)}..."`;
   } else if (isPrompt) {
     const promptPreview = String(evt.data?.prompt || "").slice(0, 70);
     title = `User Prompt: "${escapeHtml(promptPreview)}..."`;
+  } else if (evt.type === "session_pause") {
+    title = `⏸ Session Paused (Viewer Control)`;
+  } else if (evt.type === "session_resume") {
+    title = `▶ Session Resumed (Viewer Control)`;
+  } else if (evt.type === "session_abort") {
+    title = `⏹ Session Aborted (Viewer Control)`;
   } else {
     title = `Event: ${escapeHtml(evt.type)}`;
   }
@@ -641,9 +896,13 @@ export function renderEventCardHtml(evt: TraceEvent, index: number): string {
       <span class="event-type type-${category}">${escapeHtml(evt.type)}</span>
       <span class="event-title">${title}</span>
       ${durationMs !== undefined ? `<span class="event-duration">${durationMs}ms</span>` : ''}
-      ${evt.data?.status ? `<span class="badge ${evt.data.status === 'success' ? 'badge-success' : 'badge-error'}">${escapeHtml(evt.data.status)}</span>` : ''}
+      ${evt.data?.status ? `<span class="badge ${evt.data.status === 'success' ? 'badge-success' : (evt.data.status === 'paused' ? 'badge-paused' : (evt.data.status === 'aborted' ? 'badge-aborted' : 'badge-error'))}">${escapeHtml(evt.data.status)}</span>` : ''}
     </div>
     <div class="event-body">
+      ${evt.type === "injected_prompt" ? `
+        <div class="section-label" style="color: #79c0ff;">Injected Steering Message</div>
+        <pre class="code-block" style="border-left: 3px solid #388bfd; background: rgba(56, 139, 253, 0.08);">${escapeHtml(evt.data?.prompt)}</pre>
+      ` : ''}
       ${evt.data?.input ? `
         <div class="section-label">Input Payload</div>
         <pre class="code-block">${escapeHtml(evt.data.input)}</pre>
@@ -656,7 +915,7 @@ export function renderEventCardHtml(evt: TraceEvent, index: number): string {
         <div class="section-label" style="margin-top: 12px;">Result / Output</div>
         <pre class="code-block">${escapeHtml(evt.data.output)}</pre>
       ` : ''}
-      ${!evt.data?.input && evt.data?.output === undefined && !parsedDiff ? `
+      ${!evt.data?.input && evt.data?.output === undefined && !parsedDiff && evt.type !== "injected_prompt" ? `
         <div class="section-label">Full Event Data</div>
         <pre class="code-block">${escapeHtml(evt.data)}</pre>
       ` : ''}

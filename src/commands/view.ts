@@ -1,12 +1,20 @@
 import fs from "node:fs";
 import path from "node:path";
 import http from "node:http";
+import crypto from "node:crypto";
 import { exec } from "node:child_process";
 import pc from "picocolors";
 import { StorageManager } from "../storage/index.js";
 import { generateTraceHtml, generateArenaHtml, renderEventCardHtml } from "../viewer/html.js";
 import { compareWithGolden } from "../engine/differencer.js";
 import { TraceEvent, TraceSession } from "../types/index.js";
+import { computeWebSocketAccept, TraceWebSocketClient } from "../viewer/websocket.js";
+import {
+  pauseSession,
+  resumeSession,
+  abortSession,
+  injectPrompt,
+} from "../engine/control.js";
 
 export interface ViewOptions {
   latest?: boolean;
@@ -31,6 +39,7 @@ export function createViewerServer(
   options: { golden?: string; token?: string } = {}
 ): { server: http.Server; close: () => void } {
   const clients = new Set<http.ServerResponse>();
+  const wsClients = new Set<TraceWebSocketClient>();
   const sentEventIds = new Set<string>();
 
   const targetIds: string[] = Array.isArray(sessionIdOrIds)
@@ -109,6 +118,7 @@ export function createViewerServer(
       html: cardHtml,
     });
 
+    // 1. Server-Sent Events stream broadcast
     const sseMessage = `event: trace_event\ndata: ${payload}\n\n`;
     for (const client of clients) {
       try {
@@ -117,11 +127,113 @@ export function createViewerServer(
         clients.delete(client);
       }
     }
+
+    // 2. WebSocket bidirectional stream broadcast
+    const wsMessage = JSON.stringify({
+      event: "trace_event",
+      data: {
+        id: evt.id,
+        sessionId: evt.sessionId,
+        agent: evt.agent,
+        type: evt.type,
+        timestamp: evt.timestamp,
+        data: evt.data,
+        html: cardHtml,
+      },
+    });
+    for (const ws of wsClients) {
+      try {
+        ws.send(wsMessage);
+      } catch {
+        wsClients.delete(ws);
+      }
+    }
+  }
+
+  function handleControlAction(
+    action: string,
+    targetSessionId: string,
+    message?: string
+  ): { success: boolean; action: string; sessionId: string; status?: string; error?: string } {
+    const sid = targetSessionId || targetIds[0];
+    const s = storage.getSession(sid);
+    const agent = s?.agent || "agent";
+
+    if (action === "pause") {
+      const res = pauseSession(sid, storage.baseDir);
+      const pauseEvt: TraceEvent = {
+        id: `evt-ctrl-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`,
+        sessionId: sid,
+        timestamp: new Date().toISOString(),
+        type: "session_pause",
+        agent,
+        data: { action: "pause", source: "viewer_control" },
+      };
+      storage.recordEvent(pauseEvt);
+      storage.upsertSession({ id: sid, status: "paused" });
+      return { success: res.success, action: "pause", sessionId: sid, status: "paused", error: res.error };
+    } else if (action === "resume") {
+      const res = resumeSession(sid, storage.baseDir);
+      const resumeEvt: TraceEvent = {
+        id: `evt-ctrl-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`,
+        sessionId: sid,
+        timestamp: new Date().toISOString(),
+        type: "session_resume",
+        agent,
+        data: { action: "resume", source: "viewer_control" },
+      };
+      storage.recordEvent(resumeEvt);
+      storage.upsertSession({ id: sid, status: "active" });
+      return { success: res.success, action: "resume", sessionId: sid, status: "active", error: res.error };
+    } else if (action === "abort") {
+      const res = abortSession(sid, storage.baseDir);
+      storage.upsertSession({
+        id: sid,
+        status: "aborted",
+        endTime: new Date().toISOString(),
+      });
+      const abortEvt: TraceEvent = {
+        id: `evt-ctrl-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`,
+        sessionId: sid,
+        timestamp: new Date().toISOString(),
+        type: "session_abort",
+        agent,
+        data: { action: "abort", source: "viewer_control" },
+      };
+      storage.recordEvent(abortEvt);
+      return { success: res.success, action: "abort", sessionId: sid, status: "aborted", error: res.error };
+    } else if (action === "inject") {
+      const promptText = (message || "").trim();
+      const res = injectPrompt(sid, promptText, storage.baseDir);
+      const promptEvt: TraceEvent = {
+        id: `evt-ctrl-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`,
+        sessionId: sid,
+        timestamp: new Date().toISOString(),
+        type: "injected_prompt",
+        agent,
+        data: { prompt: promptText, source: "viewer_control" },
+      };
+      storage.recordEvent(promptEvt);
+      return { success: res.success, action: "inject", sessionId: sid, error: res.error };
+    }
+
+    return { success: false, action, sessionId: sid, error: `Unknown action '${action}'` };
   }
 
   const server = http.createServer((req, res) => {
     const urlObj = new URL(req.url || "/", "http://localhost");
     const pathname = urlObj.pathname;
+
+    // Handle CORS preflight
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      });
+      res.end();
+      return;
+    }
 
     // Optional token authentication check (opt-in for remote exposure)
     const requiredToken = options.token || process.env.TRACEEVAL_TOKEN;
@@ -165,7 +277,33 @@ export function createViewerServer(
       return;
     }
 
-    // 2. REST API endpoint: /api/sessions (list available sessions)
+    // 2. REST API endpoint: /api/control (bidirectional pause/resume/abort/inject)
+    if (pathname === "/api/control" && req.method === "POST") {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+      });
+      req.on("end", () => {
+        try {
+          const parsed = JSON.parse(body || "{}");
+          const result = handleControlAction(parsed.action, parsed.sessionId, parsed.message);
+          res.writeHead(200, {
+            "Content-Type": "application/json; charset=utf-8",
+            "Access-Control-Allow-Origin": "*",
+          });
+          res.end(JSON.stringify(result));
+        } catch {
+          res.writeHead(400, {
+            "Content-Type": "application/json; charset=utf-8",
+            "Access-Control-Allow-Origin": "*",
+          });
+          res.end(JSON.stringify({ success: false, error: "Invalid JSON control request" }));
+        }
+      });
+      return;
+    }
+
+    // 3. REST API endpoint: /api/sessions (list available sessions)
     if (pathname === "/api/sessions") {
       const allSessions = storage.listSessions(50);
       res.writeHead(200, {
@@ -176,7 +314,7 @@ export function createViewerServer(
       return;
     }
 
-    // 3. REST API endpoint: /api/session (specific session data)
+    // 4. REST API endpoint: /api/session (specific session data)
     if (pathname === "/api/session") {
       const requestedId = urlObj.searchParams.get("id") || targetIds[0];
       const current = storage.getSession(requestedId);
@@ -251,6 +389,68 @@ export function createViewerServer(
     res.end(htmlContent);
   });
 
+  // Handle bidirectional WebSocket upgrades on /ws or /events
+  server.on("upgrade", (req, socket, head) => {
+    const urlObj = new URL(req.url || "/", "http://localhost");
+    const pathname = urlObj.pathname;
+
+    if (pathname !== "/ws" && pathname !== "/events") {
+      socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+
+    // Token auth check
+    const requiredToken = options.token || process.env.TRACEEVAL_TOKEN;
+    if (requiredToken) {
+      const authHeader = req.headers["authorization"];
+      const bearerToken = authHeader?.startsWith("Bearer ")
+        ? authHeader.slice(7).trim()
+        : null;
+      const queryToken = urlObj.searchParams.get("token");
+
+      if (queryToken !== requiredToken && bearerToken !== requiredToken) {
+        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+    }
+
+    const secKey = req.headers["sec-websocket-key"] as string | undefined;
+    if (!secKey) {
+      socket.write("HTTP/1.1 400 Bad Request\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+
+    const acceptKey = computeWebSocketAccept(secKey);
+    socket.write(
+      "HTTP/1.1 101 Switching Protocols\r\n" +
+      "Upgrade: websocket\r\n" +
+      "Connection: Upgrade\r\n" +
+      `Sec-WebSocket-Accept: ${acceptKey}\r\n\r\n`
+    );
+
+    const wsClient = new TraceWebSocketClient(socket);
+    wsClients.add(wsClient);
+
+    wsClient.on("message", (raw) => {
+      try {
+        const msg = JSON.parse(raw);
+        if (msg && msg.action && msg.sessionId) {
+          const result = handleControlAction(msg.action, msg.sessionId, msg.message);
+          wsClient.send(JSON.stringify({ type: "control_ack", ...result }));
+        }
+      } catch {
+        // Ignore
+      }
+    });
+
+    wsClient.on("close", () => {
+      wsClients.delete(wsClient);
+    });
+  });
+
   return {
     server,
     close: () => {
@@ -279,6 +479,16 @@ export function createViewerServer(
         }
       }
       clients.clear();
+
+      for (const ws of wsClients) {
+        try {
+          ws.close();
+        } catch {
+          // Ignore
+        }
+      }
+      wsClients.clear();
+
       server.close();
     },
   };

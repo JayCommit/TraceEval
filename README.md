@@ -3,9 +3,9 @@
 > **pytest + git blame for AI coding agents.**  
 > *Stop shipping agent regressions. Catch them before they cost you tokens and time.*
 
-[![npm version](https://img.shields.io/badge/npm-v0.0.5-blue.svg)](https://www.npmjs.com/package/traceeval)
+[![npm version](https://img.shields.io/badge/npm-v0.0.6-blue.svg)](https://www.npmjs.com/package/traceeval)
 [![CI](https://github.com/JayCommit/TraceEval/actions/workflows/agent-eval.yml/badge.svg)](https://github.com/JayCommit/TraceEval/actions/workflows/agent-eval.yml)
-[![Tests](https://img.shields.io/badge/tests-181%20passing-brightgreen.svg)](https://github.com/JayCommit/TraceEval)
+[![Tests](https://img.shields.io/badge/tests-200%20passing-brightgreen.svg)](https://github.com/JayCommit/TraceEval)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D22.0.0-green.svg)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-ES2022-blue)](https://www.typescriptlang.org/)
@@ -22,8 +22,10 @@ AI coding agents generate code rapidly, but verification is mostly manual. A min
 - **Local-first & private**: Runs 100% on your machine or in CI. No mandatory cloud observability platforms, external accounts, or token telemetry leaks.
 - **Regression-first ("git blame" for agents)**: Compares current agent runs against known-good **golden baselines** to detect step inflation, tool deviations, and cost drift.
 - **Token-efficient by design**: Zero-token deterministic assertions (`file_contains`, `tests_pass`, `max_steps`, `cost_under`), automatic payload truncation, and compact MCP responses that protect agent context windows.
-- **⚔️ Multi-Agent Live Arena**: Compare multiple coding agents (e.g. Claude Code vs Cursor) executing tasks side-by-side in real-time with synchronized SSE streams and head-to-head scoreboards.
-- **Split diffs with intra-line highlighting**: Real-time SSE streaming viewer with toggleable side-by-side/unified file diffs and token-level character/word highlighting inside modified lines.
+- **⚔️ Automated Multi-Agent Benchmarks**: Launch two or more coding agents simultaneously in isolated workspaces on the same prompt or test spec (`traceeval bench`), streaming live side-by-side with head-to-head scoreboards.
+- **⚡ Bidirectional Live Viewer Controls**: Pause (`SIGSTOP`), resume (`SIGCONT`), abort (`SIGINT`/`SIGTERM`), or inject steering prompts directly into active agent runs from the web UI over RFC6455 WebSockets and REST API.
+- **🧠 AST-Aware Semantic Diffing**: Syntax-aware structural code diffing detecting moved blocks, function signature modifications, and renamed identifiers across TypeScript/JavaScript, Python, and C-like languages with zero dependencies.
+- **Split diffs with intra-line highlighting**: Real-time SSE/WebSocket streaming viewer with toggleable side-by-side/unified file diffs and token-level character/word highlighting inside modified lines.
 - **Statistical multi-run testing**: Handles non-deterministic LLM behavior via `--runs N --min-success M%` thresholds.
 - **Turnkey agent support**: One-command hook injection for Cursor, Grok, Grok Bot, OpenAI / ChatGPT app, Antigravity, Claude Code, and OpenCode.
 - **MCP server included**: Built-in Model Context Protocol server enabling agents to query past traces and golden baselines directly.
@@ -198,52 +200,72 @@ TraceEval records traces for each individual run, calculates the statistical pas
 
 ---
 
-## ⚔️ Multi-Agent Live Arena
+## ⚔️ Multi-Agent Live Arena & Automated Benchmarks
 
-Run multiple AI coding agents side-by-side on the same task and watch them compete in real time:
+### 1. Automated Benchmark Launching (`traceeval bench`)
+Automatically launch multiple AI coding agents simultaneously in isolated workspaces against the same prompt or test specification:
 
 ```bash
-# Launch the Live Arena comparing your two most recent agent runs:
+# Benchmark Claude Code vs Cursor against a prompt:
+traceeval bench --agents claude,cursor --prompt "Add email validation logic in src/auth.ts"
+
+# Benchmark against a declarative test specification in parallel:
+traceeval bench --agents claude,cursor,antigravity --test .traceeval/tests/hello-world.yaml
+
+# Or launch via the arena command:
+traceeval arena --launch --agents claude,cursor --test .traceeval/tests/hello-world.yaml
+```
+
+- **Clean workspace isolation**: Provisions isolated workspaces (`.traceeval/workspaces/<agent>-<sessionId>`) with separate file trees and environment bindings (`TRACEEVAL_SESSION_ID`, `TRACEEVAL_WORKSPACE`) so agents never interfere.
+- **Concurrent execution**: Runs agents in parallel, capturing steps, tokens, duration, and file changes simultaneously.
+- **Automated test assertions**: When run with `--test <spec.yaml>`, runs all deterministic assertions (`file_exists`, `file_contains`, `tests_pass`) against each agent's resulting workspace.
+- **Instant live Arena streaming**: Automatically opens the Multi-Agent Live Arena in your browser, streaming both trajectories side-by-side as tools execute.
+
+### 2. Multi-Agent Live Arena Viewer
+Inspect multiple agent runs side-by-side in real time:
+
+```bash
+# Compare your two most recent runs:
 traceeval arena
 
 # Compare specific agent sessions side-by-side:
 traceeval arena session-claude session-cursor
 
-# Or launch via view with multiple session arguments:
+# Or launch via view:
 traceeval view session-claude session-cursor --serve
 ```
 
-- **Head-to-head scoreboard**: Real-time comparison comparing step efficiency, duration speedup, dollar cost, total tokens, and files modified across all active agents.
+- **Head-to-head scoreboard**: Real-time scoreboard comparing step efficiency, duration speedup, dollar cost, total tokens, and files modified across all active agents.
 - **Side-by-side agent columns**: Responsive CSS grid panes with agent-specific color branding (Claude, Cursor, OpenAI / ChatGPT, Grok, Grok Bot, Antigravity, OpenCode).
-- **Synchronized live SSE streaming**: Watch tool calls, file edits, and outputs stream into each agent pane in real time without refreshing.
-- **Interactive browser controls**: Add new agents to the arena dynamically from recent workspace traces via the header dropdown, or unpin agents (`✕`) on the fly.
-- **Seamless switching**: Navigate between single-agent view and multi-agent arena anytime via URL query parameter `?sessions=id1,id2`.
+- **Synchronized live streaming**: Watch tool calls, file edits, and outputs stream into each agent pane in real time without refreshing.
+- **Dynamic browser pinning**: Add new agents to the arena dynamically from recent workspace traces via the header dropdown, or unpin agents (`✕`) on the fly.
 - **Offline export**: `traceeval arena session-1 session-2 -o arena.html` exports self-contained offline reports for sharing or PR reviews.
 
 ---
 
-## 🖥 Real-Time Live Viewer & Intra-Line File Diffs
+## 🖥 Real-Time Live Viewer, Semantic Diffing & Bidirectional Control
 
-### 1. Live SSE Trace Viewer
-Stream live agent execution into your browser as tools run in real-time, with zero external dependencies:
+### 1. Bidirectional Agent Controls (Pause, Abort, Inject Prompt)
+Steer and control running agents directly from the browser in real time:
 
-```bash
-traceeval view --latest --serve
-```
+- **⏸ Pause / ▶ Resume**: Freezes the active agent child process via POSIX `SIGSTOP` and unfreezes via `SIGCONT`.
+- **⏹ Abort**: Safely stops rogue or looping agents via `SIGINT` / `SIGTERM` signals.
+- **⚡ Prompt Injection**: Inject real-time steering messages or corrections directly into the active session via `stdin` and control queues.
+- **Dual-Channel Protocol**: Uses RFC6455 WebSockets over `/ws` with automatic fallback to REST API (`POST /api/control`).
+- **Safe & Authenticated**: Strictly local-only (`127.0.0.1`) by default, with `--token` authentication support for remote sessions.
 
-- **Zero page reloads**: Server-Sent Events (SSE) stream tool calls and status badges live into the timeline.
-- **Pulsing status badge**: Real-time connection indicator (`LIVE`, `RECONNECTING`, `OFFLINE`).
-- **Interactive filters**: Instant category filtering (tool calls, file changes, user prompts) and live payload search.
+### 2. AST-Aware Semantic Diffing & Intra-Line Highlighting
+Upgrade code review beyond simple line deletions and additions:
 
-### 2. Side-by-Side Diffs with Intra-Line Highlighting
-Whenever an agent performs code edits (`Edit`, `edit_file`, `str_replace_editor`, `write_file`, or `file_change`), TraceEval renders syntax-styled visual diffs with character/token-level precision:
-
-- **Intra-line word highlighting**: Modified words and tokens inside changed lines are highlighted in high-contrast red (`.diff-word-del`) and green (`.diff-word-add`), so you instantly spot the exact variable, parameter, or syntax change.
-- **Split View (Default)**: Clean two-column side-by-side diff with old code on the left and new code on the right.
-- **Unified View**: One-click toggle back to unified diff layout with matching intra-line highlights.
+- **🧠 AST Structural Insights**: Pure TypeScript syntax analyzer detecting:
+  - **Moved Blocks (`⇄ Moved`)**: Functions, methods, or classes relocated or reordered within a file (lines $X..Y \to A..B$).
+  - **Signature Modifications (`✎ Signature`)**: Parameter list, type, or return signature adjustments.
+  - **Renamed Identifiers (`🔤 Renamed`)**: Variable or parameter renames tracked across declaration scopes (e.g. `subtotal` $\to$ `aggregate` $3\times$).
+  - **Added / Removed Declarations (`✚ Added`, `✖ Removed`)**: New or deleted functions and classes.
+- **Intra-line word highlighting**: Modified words and tokens inside changed lines are highlighted in high-contrast red (`.diff-word-del`) and green (`.diff-word-add`).
+- **Split & Unified View Modes**: Seamless toggle between side-by-side Split View and Unified View.
 - **Accurate line numbers**: Preserves exact hunk line numbering from unified diffs.
-- **Truncation safety**: Intelligently truncates diffs exceeding 300 lines to preserve browser responsiveness.
-- **Works offline & live**: Available in both static HTML exports and the real-time SSE live viewer.
+- **Performance safeguards**: Built-in truncation guards for diffs exceeding 300 lines or files over 2,000 lines.
 
 ```bash
 # Export self-contained offline HTML report:
@@ -320,7 +342,8 @@ traceeval mcp
 | `traceeval traces diff <id1> <id2>` | Side-by-side terminal trajectory differencer |
 | `traceeval traces diff <id1> -g <test>` | Compares a trace session against its golden baseline |
 | `traceeval view [sessionIds...] --serve` | Starts local real-time SSE streaming viewer with side-by-side diffs |
-| `traceeval arena [sessionIds...]` | Launches Multi-Agent Live Arena comparing agents side-by-side |
+| `traceeval arena [sessionIds...]` | Launches Multi-Agent Live Arena; use `--launch` (`-l`) to benchmark multiple agents |
+| `traceeval bench [options]` | Launches multiple agents automatically in isolated workspaces against a prompt or test |
 | `traceeval specs --validate` | Verifies linked `AGENTS.md` spec headings and fails if broken |
 | `traceeval mcp` | Starts Model Context Protocol server over stdio for agent queries |
 

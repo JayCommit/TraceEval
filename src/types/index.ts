@@ -11,6 +11,10 @@ export const TraceEventTypeSchema = z.enum([
   "tool_call",
   "file_change",
   "agent_thought",
+  "session_pause",
+  "session_resume",
+  "session_abort",
+  "injected_prompt",
   "custom",
 ]);
 
@@ -55,7 +59,7 @@ export const TraceSessionSchema = z.object({
   durationMs: z.number().optional(),
   command: z.string().optional(),
   prompt: z.string().optional(),
-  status: z.enum(["active", "completed", "error"]).default("active"),
+  status: z.enum(["active", "completed", "error", "aborted", "paused"]).default("active"),
   events: z.array(TraceEventSchema).default([]),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });

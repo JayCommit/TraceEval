@@ -138,6 +138,14 @@ export function runTracesShow(sessionId: string): void {
       summary = `Thought: ${pc.italic(thought.slice(0, 60))}...`;
     } else if (evt.type === "session_start") {
       summary = `Session started`;
+    } else if (evt.type === "session_pause") {
+      summary = pc.yellow("Session paused by viewer user");
+    } else if (evt.type === "session_resume") {
+      summary = pc.green("Session resumed by viewer user");
+    } else if (evt.type === "session_abort") {
+      summary = pc.red("Session aborted by viewer user");
+    } else if (evt.type === "injected_prompt") {
+      summary = pc.cyan(`Injected Prompt: "${String(evt.data.prompt || "").slice(0, 50)}..."`);
     } else if (evt.type === "session_end") {
       summary = `Session completed (${evt.data.durationMs ?? 0}ms)`;
     } else if (evt.type === "custom") {

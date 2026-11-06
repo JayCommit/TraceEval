@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import pc from "picocolors";
 import { StorageManager } from "../storage/index.js";
 import { TraceEvent } from "../types/index.js";
+import { SessionProcessRegistry } from "../engine/control.js";
 
 export interface RecordOptions {
   session?: string;
@@ -81,13 +82,20 @@ export function runRecord(commandArgs: string[], options: RecordOptions = {}): v
 
   // Execute command with injected session ID
   const [cmd, ...args] = commandArgs;
-  const child = spawnSync(cmd, args, {
-    stdio: "inherit",
-    env: {
-      ...process.env,
-      TRACEEVAL_SESSION_ID: sessionId,
-    },
-  });
+  SessionProcessRegistry.register(sessionId, { pid: process.pid, agent });
+
+  let child;
+  try {
+    child = spawnSync(cmd, args, {
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        TRACEEVAL_SESSION_ID: sessionId,
+      },
+    });
+  } finally {
+    SessionProcessRegistry.unregister(sessionId);
+  }
 
   const durationMs = Date.now() - startTs;
   const endTime = new Date().toISOString();

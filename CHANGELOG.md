@@ -5,6 +5,51 @@ All notable changes to TraceEval will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.6] - 2026-11-06
+
+### AST-Aware Semantic Diffing, Bidirectional Viewer Control & Automated Multi-Agent Benchmarks
+
+#### 🧠 1. AST-Aware Semantic Diffing
+- **Syntax-Aware Code Structural Analysis**: Upgraded visual file diffing beyond token/word-level LCS by introducing a pure TypeScript, zero-dependency AST analyzer (`src/viewer/semantic.ts`).
+- **Moved Block & Function Reorder Detection**: Detects functions, methods, and classes that were relocated or reordered within a file (lines $X..Y \to A..B$), displaying `⇄ Moved` pills and marking diff lines with `⇄ MOVED` tags.
+- **Function & Method Signature Change Detection**: Detects altered parameter lists, types, default values, or return signatures between old and new declarations, highlighting `✎ Signature: name(...)` pills.
+- **Scope-Aware Renamed Identifier Recognition**: Detects renamed variables and parameters within modified functions and declaration blocks (e.g. `subtotal` $\to$ `aggregate` $3\times$), annotating word-level diff badges.
+- **Added & Removed Declaration Tracking**: Flags added or removed functions, classes, and methods (`✚ Added`, `✖ Removed`).
+- **Multi-Language Heuristics**: Lightweight declaration extractors for TypeScript/JavaScript (.ts, .tsx, .js, .mjs), Python (.py), and general C-like brace syntaxes (Go, Rust, Java, C/C++).
+- **Graceful Fallbacks & Performance Safeguards**: Files exceeding 2,000 lines or non-code files cleanly bypass AST analysis and preserve high-contrast intra-line token diffing with zero performance penalty.
+
+#### ⚡ 2. Bidirectional Viewer Control
+- **Interactive Browser Controls**: Live viewer users can now directly steer active agent sessions from both single-session and multi-agent Arena views.
+  - **Pause / Resume**: Freezes running child processes via POSIX `SIGSTOP` and unfreezes via `SIGCONT`. External hook-based agents wait gracefully until resumed.
+  - **Abort**: Safely terminates running agent processes via `SIGINT` (followed by `SIGKILL` escalation), updates trace session status to `aborted`, and broadcasts an abort card to all connected viewers.
+  - **Prompt Injection**: Injects steering prompts or correction messages into running agents via child process `stdin` and writes to `.traceeval/control/<sessionId>.json`, broadcasting `injected_prompt` cards to the live timeline.
+- **Dual-Channel Protocol (WebSockets + REST API)**:
+  - **Zero-Dependency RFC6455 WebSockets**: Upgraded viewer HTTP server (`server.on('upgrade')`) to support bidirectional WebSockets over `/ws` with framing, mask decoding, and `control_ack` messages.
+  - **REST API Fallback (`POST /api/control`)**: Accepts `{ action: 'pause' | 'resume' | 'abort' | 'inject', sessionId, message }` for seamless fetch compatibility in restricted environments.
+- **Safe Authentication & Localhost Binding**: Controls are bound strictly to `127.0.0.1` by default and validate `--token` / `TRACEEVAL_TOKEN` on both WebSocket upgrade handshakes and REST API calls.
+
+#### ⚔️ 3. Automated Multi-Agent Benchmark Launching
+- **Dedicated `traceeval bench` & `traceeval arena --launch` Commands**:
+  - `traceeval bench --agents claude,cursor --prompt "Fix bug in auth.ts"`
+  - `traceeval arena --launch --agents claude,cursor,antigravity --test .traceeval/tests/hello-world.yaml`
+- **Clean Workspace Isolation**:
+  - Clones repository or provisions test `setup.files` into isolated working directories (`.traceeval/workspaces/<agent>-<sessionId>`) so agents never overwrite or conflict with each other's files.
+  - Injects isolated environment variables (`TRACEEVAL_SESSION_ID`, `TRACEEVAL_AGENT`, `TRACEEVAL_WORKSPACE`) while routing trace events to the central project storage.
+- **Concurrent Parallel Execution**: Spawns multiple agents simultaneously using `child_process.spawn`, tracking execution time, steps, files changed, and dollar costs.
+- **Simultaneous Live Arena Streaming**: Automatically opens the Multi-Agent Live Arena (`http://127.0.0.1:4242?sessions=id1,id2`), streaming trajectories from all competing agents side-by-side in real time.
+- **Automated Assertion Verification**: When run against a test spec, evaluates all deterministic assertions (`file_exists`, `file_contains`, `tests_pass`) across each agent's resulting workspace upon completion.
+- **Comprehensive Terminal Scoreboard**: Prints head-to-head comparison table showing status, step efficiency, execution duration, and assertion pass rates.
+
+#### 🐛 4. Bug Fixes, Gaps & Stability Polish
+- **Process Registry Integration**: Registered active process IDs in `traceeval record` so recorded commands can be paused, resumed, or aborted from the viewer.
+- **Timeline Trace Formatter Parity**: Added formatted labels for `session_pause`, `session_resume`, `session_abort`, and `injected_prompt` in `traceeval traces show`.
+- **Commander Flag Alignment**: Added `--no-serve` option to `traceeval arena` ensuring flag parity between `traceeval bench` and `traceeval arena --launch`.
+- **WebSocket Frame Safety**: Hardened `TraceWebSocketClient.close()` with `writableEnded` guards to prevent `ERR_STREAM_WRITE_AFTER_END` uncaught exceptions during abrupt client disconnects.
+- **Zod Schema Updates**: Added `session_pause`, `session_resume`, `session_abort`, and `injected_prompt` to `TraceEventTypeSchema`, and added `"aborted"` and `"paused"` to `TraceSessionSchema` status enum.
+- **Zero Known Limitations**: All roadmap milestones and prior limitations are now fully implemented and hardened. Test suite expanded to 200 tests across 27 files with 100% pass rate.
+
+---
+
 ## [0.0.5] - 2026-11-06
 
 ### Multi-Agent Live Arena & Intra-Line Token-Level Diff Highlighting

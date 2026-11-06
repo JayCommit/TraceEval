@@ -12,6 +12,9 @@ dist/
 .traceeval/reports/
 .traceeval/report.md
 .traceeval/*.html
+.traceeval/workspaces/
+.traceeval/control/
+.traceeval/bench/
 
 # Claude Code local
 .claude/

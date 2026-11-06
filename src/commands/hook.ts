@@ -8,6 +8,10 @@ import { parseGrokBotHookPayload } from "../hooks/grok_bot.js";
 import { parseOpenAIHookPayload } from "../hooks/openai.js";
 import { parseAntigravityHookPayload } from "../hooks/antigravity.js";
 import { safeJsonParse } from "../hooks/common.js";
+import {
+  getSessionControlState,
+  consumeInjectedPrompts,
+} from "../engine/control.js";
 
 export interface HookOptions {
   session?: string;
@@ -190,6 +194,22 @@ export async function runHook(
 
     if (options.tool && (!event.data.toolName || event.data.toolName === "unknown")) {
       event.data.toolName = options.tool;
+    }
+
+    // Check bidirectional control state (pause loop & injected prompts)
+    let ctrl = getSessionControlState(event.sessionId, options.baseDir);
+    if (ctrl.status === "paused") {
+      let waitedMs = 0;
+      while (ctrl.status === "paused" && waitedMs < 20000) {
+        await new Promise((r) => setTimeout(r, 100));
+        waitedMs += 100;
+        ctrl = getSessionControlState(event.sessionId, options.baseDir);
+      }
+    }
+
+    const unconsumedPrompts = consumeInjectedPrompts(event.sessionId, options.baseDir);
+    if (unconsumedPrompts.length > 0) {
+      event.data.injectedPrompts = unconsumedPrompts.map((p) => p.prompt);
     }
 
     if (debug) {
