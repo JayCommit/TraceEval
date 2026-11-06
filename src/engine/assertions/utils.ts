@@ -11,7 +11,7 @@ export interface DistinctToolCall {
 /**
  * Extracts distinct tool calls from a trace event sequence.
  * Deduplicates paired PreToolUse (tool_call_start) and PostToolUse (tool_call) events
- * that correspond to the same tool invocation.
+ * that correspond to the same tool invocation, while accurately preserving uncompleted calls.
  */
 export function getDistinctToolCalls(events: TraceEvent[]): DistinctToolCall[] {
   const toolEvents = events.filter(
@@ -20,6 +20,9 @@ export function getDistinctToolCalls(events: TraceEvent[]): DistinctToolCall[] {
 
   const seenToolUseIds = new Set<string>();
   const calls: DistinctToolCall[] = [];
+
+  // Track completed counts per toolName for events lacking explicit toolUseId
+  const completedCountsWithoutId = new Map<string, number>();
 
   // Pass 1: Prioritize completed tool calls (type === "tool_call")
   for (const e of toolEvents) {
@@ -33,7 +36,13 @@ export function getDistinctToolCalls(events: TraceEvent[]): DistinctToolCall[] {
 
       if (toolUseId) {
         seenToolUseIds.add(toolUseId);
+      } else {
+        completedCountsWithoutId.set(
+          toolName,
+          (completedCountsWithoutId.get(toolName) || 0) + 1
+        );
       }
+
       calls.push({
         toolName,
         toolUseId,
@@ -44,18 +53,21 @@ export function getDistinctToolCalls(events: TraceEvent[]): DistinctToolCall[] {
     }
   }
 
-  // Pass 2: Include tool_call_start only if not already recorded by tool_call
+  // Pass 2: Include tool_call_start only if not already paired/accounted for by tool_call
+  const consumedStartsWithoutId = new Map<string, number>();
+
   for (const e of toolEvents) {
     if (e.type === "tool_call_start") {
       const toolUseId = (e.data?.toolUseId as string) || (e.data?.id as string);
+      const toolName =
+        (e.data?.toolName as string) ||
+        (e.data?.tool as string) ||
+        (e.data?.name as string) ||
+        "unknown";
+
       if (toolUseId) {
         if (!seenToolUseIds.has(toolUseId)) {
           seenToolUseIds.add(toolUseId);
-          const toolName =
-            (e.data?.toolName as string) ||
-            (e.data?.tool as string) ||
-            (e.data?.name as string) ||
-            "unknown";
           calls.push({
             toolName,
             toolUseId,
@@ -63,18 +75,22 @@ export function getDistinctToolCalls(events: TraceEvent[]): DistinctToolCall[] {
             data: e.data || {},
           });
         }
-      } else if (calls.length === 0) {
-        // If there were no tool_call events in the trace, include tool_call_start
-        const toolName =
-          (e.data?.toolName as string) ||
-          (e.data?.tool as string) ||
-          (e.data?.name as string) ||
-          "unknown";
-        calls.push({
-          toolName,
-          status: "started",
-          data: e.data || {},
-        });
+      } else {
+        const completedCount = completedCountsWithoutId.get(toolName) || 0;
+        const consumedCount = consumedStartsWithoutId.get(toolName) || 0;
+
+        if (consumedCount < completedCount) {
+          // This start corresponds to one of the completed calls in Pass 1
+          consumedStartsWithoutId.set(toolName, consumedCount + 1);
+        } else {
+          // Extra start event without matching tool_call (e.g. aborted/interrupted execution)
+          consumedStartsWithoutId.set(toolName, consumedCount + 1);
+          calls.push({
+            toolName,
+            status: "started",
+            data: e.data || {},
+          });
+        }
       }
     }
   }

@@ -117,4 +117,96 @@ describe("Live Real-Time Viewer Server & SSE Streaming", () => {
       close();
     }
   });
+
+  it("should enforce token authentication when token option is provided", async () => {
+    const secretToken = "my-secret-test-token-123";
+    const { server, close } = createViewerServer(storage, sessionId, { token: secretToken });
+
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const port = (server.address() as any).port;
+
+    try {
+      // 1. Request without token should be rejected with 401
+      const resUnauthorized = await fetch(`http://localhost:${port}/`);
+      expect(resUnauthorized.status).toBe(401);
+      const errText = await resUnauthorized.text();
+      expect(errText).toContain("401 Unauthorized");
+      expect(errText).toContain("access token is required");
+
+      // 2. Request with invalid token should be rejected with 401
+      const resBadToken = await fetch(`http://localhost:${port}/?token=wrong-token`);
+      expect(resBadToken.status).toBe(401);
+
+      // 3. Request with valid query parameter token should succeed with 200
+      const resValidQuery = await fetch(`http://localhost:${port}/?token=${secretToken}`);
+      expect(resValidQuery.status).toBe(200);
+      const htmlText = await resValidQuery.text();
+      expect(htmlText).toContain("TraceEval");
+
+      // 4. Request with valid Bearer authorization header should succeed with 200
+      const resValidHeader = await fetch(`http://localhost:${port}/api/session`, {
+        headers: { Authorization: `Bearer ${secretToken}` },
+      });
+      expect(resValidHeader.status).toBe(200);
+    } finally {
+      close();
+    }
+  });
+
+  it("should stream diff events containing split view and toggle markup in SSE payload", async () => {
+    const { server, close } = createViewerServer(storage, sessionId);
+
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const port = (server.address() as any).port;
+
+    try {
+      const sseEvents: string[] = [];
+
+      await new Promise<void>((resolve) => {
+        const req = http.get(`http://localhost:${port}/events`, (res) => {
+          res.on("data", (chunk) => {
+            const text = chunk.toString();
+            sseEvents.push(text);
+            if (text.includes("diff-split-container")) {
+              req.destroy();
+              resolve();
+            }
+          });
+
+          // Stream a file editing tool call with diff
+          setTimeout(() => {
+            storage.recordEvent({
+              id: "evt-diff-stream",
+              sessionId,
+              timestamp: new Date().toISOString(),
+              type: "tool_call",
+              agent: "cursor",
+              data: {
+                toolName: "str_replace_editor",
+                input: {
+                  path: "src/user.ts",
+                  old_str: "const active = false;",
+                  new_str: "const active = true;",
+                },
+                status: "success",
+              },
+            });
+          }, 300);
+        });
+
+        setTimeout(() => {
+          req.destroy();
+          resolve();
+        }, 2500);
+      });
+
+      const output = sseEvents.join("");
+      expect(output).toContain("diff-split-container");
+      expect(output).toContain("diff-toggle-btn");
+      expect(output).toContain("split-del");
+      expect(output).toContain("split-add");
+    } finally {
+      close();
+    }
+  });
 });

@@ -202,4 +202,43 @@ describe("Statistical Multi-Run Mode & Threshold Evaluation", () => {
     expect(evalResult.goldenBaseline).toBeDefined();
     expect(evalResult.goldenBaseline?.testName).toBe("Golden Multi-Run Task");
   });
+
+  it("should NOT bless a golden baseline in multi-run mode if overall threshold fails", async () => {
+    const counterFile = path.join(tmpDir, "counter-golden-fail.txt");
+    fs.writeFileSync(counterFile, "0", "utf-8");
+
+    const loadedTest: LoadedTestCase = {
+      filePath: path.join(tmpDir, "failing-threshold-test.yaml"),
+      testCase: {
+        name: "Failing Threshold Golden Task",
+        run: {
+          // Run 1 passes, Runs 2 and 3 fail
+          command: `node -e "const fs = require('fs'); const n = parseInt(fs.readFileSync('${counterFile}', 'utf-8'), 10) + 1; fs.writeFileSync('${counterFile}', String(n)); fs.writeFileSync('flaky.txt', n === 1 ? 'pass' : 'fail');"`,
+        },
+        assertions: [
+          {
+            type: "file_contains",
+            path: "flaky.txt",
+            pattern: "pass",
+          },
+        ],
+      },
+    };
+
+    const runner = new TestRunner({
+      workspaceDir: tmpDir,
+      storage,
+      runs: 3,
+      minSuccess: 0.8, // 80% required; only 1/3 (33%) passes
+      updateGolden: true,
+    });
+
+    const result = await runner.runTest(loadedTest);
+    expect(result.status).toBe("failed");
+    expect(result.multiRun?.passThresholdMet).toBe(false);
+
+    // Baseline should NOT have been created because multi-run threshold failed
+    const saved = storage.getGolden("Failing Threshold Golden Task");
+    expect(saved).toBeNull();
+  });
 });

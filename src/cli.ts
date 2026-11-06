@@ -21,7 +21,7 @@ const program = new Command();
 program
   .name("traceeval")
   .description("TraceEval — Local-first evaluation and regression testing for AI coding agents")
-  .version("0.0.3")
+  .version("0.0.4")
   .enablePositionalOptions();
 
 // Command: init
@@ -190,11 +190,13 @@ tracesCmd
 // Command: view
 program
   .command("view [sessionId]")
-  .description("View interactive HTML trace timeline, file diffs, and real-time live events")
+  .description("View interactive HTML trace timeline, side-by-side file diffs, and real-time live events")
   .option("-l, --latest", "View the most recent session")
   .option("-o, --output <file>", "Save HTML to specific file path")
   .option("-s, --serve", "Serve viewer via local HTTP server with real-time SSE streaming")
+  .option("-H, --host <host>", "Host address to bind server (default: '127.0.0.1'; use '0.0.0.0' for remote/network access)")
   .option("-p, --port <number>", "Port for local HTTP server", "4242")
+  .option("--token <secret>", "Optional access token for remote authentication")
   .option("-g, --golden <test-name>", "Golden baseline test name to compare against")
   .option("--no-open", "Do not automatically launch browser window on serve")
   .action(async (sessionId, options) => {
@@ -202,7 +204,9 @@ program
       latest: options.latest,
       output: options.output,
       serve: options.serve,
+      host: options.host,
       port: options.port,
+      token: options.token,
       golden: options.golden,
       openBrowser: options.open,
     });

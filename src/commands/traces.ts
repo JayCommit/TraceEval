@@ -232,8 +232,9 @@ function printGoldenDiffView(
 
   if (diff.costDelta !== undefined) {
     const costSign = diff.costDelta >= 0 ? `+$${diff.costDelta.toFixed(4)}` : `-$${Math.abs(diff.costDelta).toFixed(4)}`;
+    const currCostStr = diff.current?.cost !== undefined ? `$${diff.current.cost.toFixed(4)}` : "N/A";
     console.log(
-      `  ${"Cost".padEnd(16)} ${`$${(golden.cost ?? 0).toFixed(4)}`.padEnd(14)} ${"Current".padEnd(14)} ${costSign}`
+      `  ${"Cost".padEnd(16)} ${`$${(golden.cost ?? 0).toFixed(4)}`.padEnd(14)} ${currCostStr.padEnd(14)} ${costSign}`
     );
   }
 

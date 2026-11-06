@@ -71,6 +71,9 @@ export function installAntigravityHooks(options: {
         SessionStart: [
           { type: "command", command: `${bin} hook start --agent antigravity` },
         ],
+        UserPrompt: [
+          { type: "command", command: `${bin} hook prompt --agent antigravity` },
+        ],
         PreToolUse: [
           {
             matcher: ".*",
@@ -173,10 +176,19 @@ export function parseAntigravityHookPayload(
       data.input = toolInput;
       data.output = toolOutput;
       data.durationMs = parsed.durationMs ?? parsed.duration_ms;
-      data.status = parsed.error ? "error" : "success";
+      data.status = (parsed.status as string) || (parsed.error ? "error" : "success");
+      break;
+
+    case "file":
+    case "filechange":
+    case "filewrite":
+      eventType = "file_change";
+      data.path = (parsed.path || parsed.file || "unknown") as string;
+      data.changeType = (parsed.status || "modified") as string;
       break;
 
     case "stop":
+    case "sessionend":
       eventType = "session_end";
       data.reason = parsed.terminationReason || "completed";
       break;

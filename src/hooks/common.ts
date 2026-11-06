@@ -25,13 +25,15 @@ export function truncatePayload<T = unknown>(value: T, maxChars?: number): T {
   const envMax = process.env.TRACEEVAL_MAX_PAYLOAD
     ? parseInt(process.env.TRACEEVAL_MAX_PAYLOAD, 10)
     : undefined;
-  const limit = maxChars ?? (envMax && !isNaN(envMax) ? envMax : 8192);
+  const rawLimit = maxChars ?? (envMax && !isNaN(envMax) ? envMax : 8192);
+  const limit = Math.max(10, rawLimit);
 
   if (typeof value === "string") {
     if (value.length <= limit) return value as T;
     const keepChars = Math.floor(limit / 2);
     const excess = value.length - limit;
-    return `${value.slice(0, keepChars)}\n... [truncated ${excess} characters] ...\n${value.slice(-keepChars)}` as unknown as T;
+    const suffix = keepChars > 0 ? value.slice(-keepChars) : "";
+    return `${value.slice(0, keepChars)}\n... [truncated ${excess} characters] ...\n${suffix}` as unknown as T;
   }
 
   if (Array.isArray(value)) {

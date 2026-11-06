@@ -301,12 +301,14 @@ export function compareWithGolden(
       stepCount: baseline.stepCount,
       durationMs: baseline.durationMs,
       toolCallBreakdown: baseline.toolCallBreakdown,
+      cost: baseline.cost,
     },
     current: {
       sessionId: current.sessionId,
       stepCount: current.stepCount,
       durationMs: current.durationMs,
       toolCallBreakdown: current.toolCallBreakdown,
+      cost: current.cost,
     },
   };
 }

@@ -98,5 +98,19 @@ describe("OpenAI / ChatGPT Adapter & Lifecycle Hooks", () => {
       expect(event.data.durationMs).toBe(80);
       expect(event.data.status).toBe("success");
     });
+
+    it("should parse file change events into file_change", () => {
+      const raw = JSON.stringify({
+        sessionId: "openai-run-99",
+        path: "src/api.ts",
+        status: "created",
+      });
+
+      const event = parseOpenAIHookPayload("file", raw);
+      expect(event.agent).toBe("openai");
+      expect(event.type).toBe("file_change");
+      expect(event.data.path).toBe("src/api.ts");
+      expect(event.data.changeType).toBe("created");
+    });
   });
 });

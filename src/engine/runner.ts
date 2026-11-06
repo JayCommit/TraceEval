@@ -188,7 +188,8 @@ export class TestRunner {
       }
 
       // 6. If updateGolden is enabled and assertions passed, bless the new golden baseline
-      if (this.updateGolden && allPassed && !executionError && traceSession) {
+      // Note: For multi-run executions (runs > 1), blessing is deferred until passThresholdMet is confirmed
+      if (this.updateGolden && this.runs <= 1 && allPassed && !executionError && traceSession) {
         goldenBaseline = this.storage.saveGolden(testCase.name, traceSession);
       }
 
@@ -310,6 +311,15 @@ export class TestRunner {
       singleResults.find((r) => r.status === "passed") ||
       singleResults[singleResults.length - 1];
 
+    // If updateGolden is enabled and overall multi-run met pass threshold, bless the representative passing run
+    let goldenBaseline = representativeRun?.goldenBaseline;
+    if (this.updateGolden && passThresholdMet && representativeRun?.traceSessionId) {
+      const repSession = this.storage.getSession(representativeRun.traceSessionId);
+      if (repSession) {
+        goldenBaseline = this.storage.saveGolden(testCase.name, repSession);
+      }
+    }
+
     let errorMessage: string | undefined;
     if (!passThresholdMet) {
       const ratePct = (successRate * 100).toFixed(1);
@@ -325,7 +335,7 @@ export class TestRunner {
       assertionResults: representativeRun?.assertionResults || [],
       traceSessionId: representativeRun?.traceSessionId,
       error: errorMessage || representativeRun?.error,
-      goldenBaseline: representativeRun?.goldenBaseline,
+      goldenBaseline,
       regressionDiff: representativeRun?.regressionDiff,
       multiRun,
       stepCount: averageSteps,

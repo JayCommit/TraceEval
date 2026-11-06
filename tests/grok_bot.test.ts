@@ -82,5 +82,18 @@ describe("Grok Bot Adapter & Plugin Hooks", () => {
       expect(event.data.durationMs).toBe(310);
       expect(event.data.status).toBe("success");
     });
+
+    it("should parse file change events into file_change", () => {
+      const raw = JSON.stringify({
+        sessionId: "grok-bot-pr-55",
+        path: "package.json",
+        status: "modified",
+      });
+
+      const event = parseGrokBotHookPayload("file", raw);
+      expect(event.agent).toBe("grok-bot");
+      expect(event.type).toBe("file_change");
+      expect(event.data.path).toBe("package.json");
+    });
   });
 });

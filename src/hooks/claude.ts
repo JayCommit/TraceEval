@@ -149,6 +149,11 @@ export function parseClaudeHookPayload(
   const data: Record<string, unknown> = truncatePayload({ ...parsed }) as Record<string, unknown>;
 
   switch (normalized) {
+    case "start":
+    case "sessionstart":
+      eventType = "session_start";
+      break;
+
     case "prompt":
     case "userprompt":
     case "userpromptsubmit":
@@ -218,7 +223,16 @@ export function parseClaudeHookPayload(
       }
       break;
 
+    case "file":
+    case "filechange":
+    case "filewrite":
+      eventType = "file_change";
+      data.path = (parsed.path || parsed.file || parsed.filePath || "unknown") as string;
+      data.changeType = (parsed.status || "modified") as string;
+      break;
+
     case "stop":
+    case "sessionend":
       eventType = "session_end";
       data.reason =
         parsed.reason ??

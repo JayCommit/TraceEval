@@ -12,7 +12,9 @@ export interface ViewOptions {
   latest?: boolean;
   output?: string;
   serve?: boolean;
+  host?: string;
   port?: number | string;
+  token?: string;
   golden?: string;
   openBrowser?: boolean;
 }
@@ -23,7 +25,7 @@ export interface ViewOptions {
 export function createViewerServer(
   storage: StorageManager,
   sessionId: string,
-  options: { golden?: string } = {}
+  options: { golden?: string; token?: string } = {}
 ): { server: http.Server; close: () => void } {
   const clients = new Set<http.ServerResponse>();
   const sentEventIds = new Set<string>();
@@ -81,6 +83,31 @@ export function createViewerServer(
   const server = http.createServer((req, res) => {
     const urlObj = new URL(req.url || "/", "http://localhost");
     const pathname = urlObj.pathname;
+
+    // Optional token authentication check (opt-in for remote exposure)
+    const requiredToken = options.token || process.env.TRACEEVAL_TOKEN;
+    if (requiredToken) {
+      const authHeader = req.headers["authorization"];
+      const bearerToken = authHeader?.startsWith("Bearer ")
+        ? authHeader.slice(7).trim()
+        : null;
+      const queryToken = urlObj.searchParams.get("token");
+
+      if (queryToken !== requiredToken && bearerToken !== requiredToken) {
+        res.writeHead(401, {
+          "Content-Type": "text/html; charset=utf-8",
+          "Access-Control-Allow-Origin": "*",
+        });
+        res.end(
+          `<!DOCTYPE html><html><body style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #0d1117; color: #f85149; padding: 48px; text-align: center;">` +
+          `<h2>🔒 401 Unauthorized</h2>` +
+          `<p style="color: #c9d1d9; margin-top: 12px;">A valid access token is required to inspect this trace session.</p>` +
+          `<p style="color: #8b949e; font-size: 13px; margin-top: 8px;">Append <code>?token=&lt;your-token&gt;</code> to the URL or provide an Authorization header.</p>` +
+          `</body></html>`
+        );
+        return;
+      }
+    }
 
     // 1. SSE Stream endpoint: /events
     if (pathname === "/events") {
@@ -199,23 +226,46 @@ export async function runView(
 
   // Determine output mode
   if (options.serve) {
-    const port = Number(options.port) || 4242;
-    const { server } = createViewerServer(storage, targetId, { golden: options.golden });
+    const host = options.host || process.env.TRACEEVAL_HOST || "127.0.0.1";
+    const port = Number(options.port || process.env.TRACEEVAL_PORT) || 4242;
+    const token = options.token || process.env.TRACEEVAL_TOKEN;
 
-    server.listen(port, () => {
-      const url = `http://localhost:${port}`;
+    const { server } = createViewerServer(storage, targetId, {
+      golden: options.golden,
+      token,
+    });
+
+    server.listen(port, host, () => {
+      const isAllInterfaces = host === "0.0.0.0" || host === "::";
+      const displayHost = isAllInterfaces ? "localhost" : host;
+      const tokenParam = token ? `?token=${encodeURIComponent(token)}` : "";
+      const localUrl = `http://${displayHost}:${port}${tokenParam}`;
+
       console.log("");
       console.log(pc.bold(pc.cyan("TraceEval HTML Viewer Live (Real-Time SSE Stream)")));
-      console.log(pc.dim("─".repeat(55)));
-      console.log(`  Session: ${pc.green(targetId)}`);
-      console.log(`  URL:     ${pc.bold(pc.underline(pc.cyan(url)))}`);
-      console.log(`  Status:  ${pc.green("Streaming live events without page refreshes")}`);
-      console.log(pc.dim("─".repeat(55)));
+      console.log(pc.dim("─".repeat(60)));
+      console.log(`  Session:    ${pc.green(targetId)}`);
+      console.log(`  URL:        ${pc.bold(pc.underline(pc.cyan(localUrl)))}`);
+      console.log(`  Bound Host: ${pc.yellow(host)} (port ${port})`);
+      if (isAllInterfaces) {
+        console.log(`  Remote:     ${pc.green("Enabled (accessible across LAN / Tailscale / network)")}`);
+        console.log(`  Security:   ${token ? pc.green("Protected by access token") : pc.yellow("Unauthenticated (opt-in bind to all interfaces)")}`);
+      } else {
+        console.log(`  Security:   ${pc.green("Localhost only (safe)")}`);
+        console.log(`  Remote dev: ${pc.dim(`SSH port forwarding: ssh -L ${port}:localhost:${port} user@host`)}`);
+      }
+      console.log(`  Status:     ${pc.green("Streaming live events without page refreshes")}`);
+      console.log(pc.dim("─".repeat(60)));
       console.log(pc.dim("Press Ctrl+C to stop the server."));
 
-      if (options.openBrowser !== false) {
-        const openCmd = process.platform === "darwin" ? "open" : (process.platform === "win32" ? "start" : "xdg-open");
-        exec(`${openCmd} "${url}"`, () => {});
+      if (options.openBrowser !== false && !isAllInterfaces) {
+        const openCmd =
+          process.platform === "darwin"
+            ? "open"
+            : process.platform === "win32"
+            ? "start"
+            : "xdg-open";
+        exec(`${openCmd} "${localUrl}"`, () => {});
       }
     });
   } else {
@@ -241,7 +291,11 @@ export async function runView(
     console.log(`  Session: ${pc.dim(targetId)}`);
     console.log("");
     console.log(`Open in browser:`);
-    console.log(`  ${pc.dim(`open "${outputPath}"`)} or stream live with ${pc.cyan(`traceeval view ${targetId} --serve`)}`);
+    console.log(
+      `  ${pc.dim(`open "${outputPath}"`)} or stream live with ${pc.cyan(
+        `traceeval view ${targetId} --serve`
+      )}`
+    );
     console.log("");
   }
 }

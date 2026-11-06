@@ -155,6 +155,16 @@ describe("Claude Code Hook Integration", () => {
     expect(event.data.reason).toBe("completed_goal");
   });
 
+  it("should parse Start and File hooks for Claude Code", () => {
+    const startEvent = parseClaudeHookPayload("start", JSON.stringify({ session_id: "claude-start-1" }), { baseDir: traceevalDir });
+    expect(startEvent.type).toBe("session_start");
+    expect(startEvent.agent).toBe("claude-code");
+
+    const fileEvent = parseClaudeHookPayload("file", JSON.stringify({ session_id: "claude-start-1", path: "src/auth.ts" }), { baseDir: traceevalDir });
+    expect(fileEvent.type).toBe("file_change");
+    expect(fileEvent.data.path).toBe("src/auth.ts");
+  });
+
   // --------------------------------------------------------------------------
   // 3. Session Correlation & Identification
   // --------------------------------------------------------------------------

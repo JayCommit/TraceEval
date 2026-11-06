@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   computeUnifiedDiff,
+  parseUnifiedDiffToSplit,
   extractDiffFromEvent,
   renderDiffHtml,
 } from "../src/viewer/diff.js";
@@ -116,7 +117,7 @@ describe("Visual File Diff Engine", () => {
     expect(parsed?.diffText).toContain("[diff truncated:");
   });
 
-  it("should render syntax-styled HTML diff view", () => {
+  it("should render syntax-styled HTML diff view with both split and unified containers", () => {
     const parsed = {
       filename: "src/auth.ts",
       diffText: "--- a/src/auth.ts\n+++ b/src/auth.ts\n@@ -1,2 +1,2 @@\n-const valid = false;\n+const valid = true;",
@@ -133,5 +134,102 @@ describe("Visual File Diff Engine", () => {
     expect(html).toContain("-1");
     expect(html).toContain("diff-add");
     expect(html).toContain("diff-del");
+
+    // Side-by-Side split elements
+    expect(html).toContain("view-split");
+    expect(html).toContain("diff-split-container");
+    expect(html).toContain("diff-unified-container");
+    expect(html).toContain("diff-toggle-btn");
+    expect(html).toContain('data-mode="split"');
+    expect(html).toContain('data-mode="unified"');
+    expect(html).toContain("split-del");
+    expect(html).toContain("split-add");
+    expect(html).toContain("const valid = false;");
+    expect(html).toContain("const valid = true;");
+  });
+
+  it("should parse unified diff into aligned side-by-side split rows with accurate line numbers", () => {
+    const diffText = [
+      "--- a/math.ts",
+      "+++ b/math.ts",
+      "@@ -10,3 +20,4 @@",
+      "-const oldVal = 1;",
+      "+const newVal = 2;",
+      "+const extraVal = 3;",
+      " const ctx = 4;",
+    ].join("\n");
+
+    const splitRows = parseUnifiedDiffToSplit(diffText);
+    expect(splitRows.length).toBeGreaterThan(0);
+
+    // Hunk row
+    const hunkRow = splitRows.find((r) => r.type === "hunk");
+    expect(hunkRow).toBeDefined();
+    expect(hunkRow?.hunkHeader).toContain("@@ -10,3 +20,4 @@");
+
+    // Change rows
+    const changeRows = splitRows.filter((r) => r.type === "change");
+    expect(changeRows.length).toBe(2);
+
+    // Row 0: oldVal replaced by newVal
+    expect(changeRows[0].left?.lineNum).toBe(10);
+    expect(changeRows[0].left?.content).toBe("const oldVal = 1;");
+    expect(changeRows[0].left?.type).toBe("del");
+    expect(changeRows[0].right?.lineNum).toBe(20);
+    expect(changeRows[0].right?.content).toBe("const newVal = 2;");
+    expect(changeRows[0].right?.type).toBe("add");
+
+    // Row 1: empty on left, extraVal added on right
+    expect(changeRows[1].left?.type).toBe("empty");
+    expect(changeRows[1].right?.lineNum).toBe(21);
+    expect(changeRows[1].right?.content).toBe("const extraVal = 3;");
+    expect(changeRows[1].right?.type).toBe("add");
+
+    // Context row
+    const contextRow = splitRows.find((r) => r.type === "context");
+    expect(contextRow).toBeDefined();
+    expect(contextRow?.left?.lineNum).toBe(11);
+    expect(contextRow?.right?.lineNum).toBe(22);
+    expect(contextRow?.left?.content).toBe("const ctx = 4;");
+  });
+
+  it("should preserve truncation markers in side-by-side split diff rows", () => {
+    const diffText = [
+      "--- a/large.ts",
+      "+++ b/large.ts",
+      "@@ -1,2 +1,2 @@",
+      "-old line",
+      "+new line",
+      "... [diff truncated: 50 lines omitted for readability] ...",
+    ].join("\n");
+
+    const splitRows = parseUnifiedDiffToSplit(diffText);
+    const truncRow = splitRows.find((r) => r.type === "truncated");
+    expect(truncRow).toBeDefined();
+    expect(truncRow?.truncatedText).toContain("[diff truncated:");
+
+    const html = renderDiffHtml({
+      filename: "large.ts",
+      diffText,
+      additions: 1,
+      deletions: 1,
+      isTruncated: true,
+    });
+    expect(html).toContain("split-truncated");
+    expect(html).toContain("diff-badge-trunc");
+  });
+
+  it("should support defaultMode override in renderDiffHtml", () => {
+    const parsed = {
+      filename: "test.ts",
+      diffText: "--- a/test.ts\n+++ b/test.ts\n@@ -1 +1 @@\n-a\n+b",
+      additions: 1,
+      deletions: 1,
+      isTruncated: false,
+    };
+
+    const htmlUnified = renderDiffHtml(parsed, "unified");
+    expect(htmlUnified).toContain("view-unified");
+    expect(htmlUnified).toContain('class="diff-toggle-btn active" data-mode="unified"');
   });
 });

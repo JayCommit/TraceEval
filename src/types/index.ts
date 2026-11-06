@@ -208,12 +208,14 @@ export interface RegressionDiff {
     stepCount: number;
     durationMs: number;
     toolCallBreakdown: Record<string, number>;
+    cost?: number;
   };
   current?: {
     sessionId?: string;
     stepCount: number;
     durationMs: number;
     toolCallBreakdown: Record<string, number>;
+    cost?: number;
   };
 }
 

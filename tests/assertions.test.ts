@@ -10,7 +10,8 @@ import { checkToolCalled } from "../src/engine/assertions/tool_called.js";
 import { checkNoDangerousCommands } from "../src/engine/assertions/no_dangerous_commands.js";
 import { checkCostUnder } from "../src/engine/assertions/cost_under.js";
 import { evaluateAssertion } from "../src/engine/assertions/index.js";
-import { TraceSession } from "../src/types/index.js";
+import { getDistinctToolCalls } from "../src/engine/assertions/utils.js";
+import { TraceSession, TraceEvent } from "../src/types/index.js";
 
 describe("Assertion Primitives", () => {
   let tmpDir: string;
@@ -631,6 +632,70 @@ describe("Assertion Primitives", () => {
         { workspaceDir: tmpDir, traceSession: session }
       );
       expect(res.passed).toBe(true);
+    });
+  });
+
+  describe("getDistinctToolCalls", () => {
+    it("should pair tool_call_start and tool_call by toolUseId", () => {
+      const events: TraceEvent[] = [
+        {
+          id: "1",
+          sessionId: "sess",
+          timestamp: "",
+          type: "tool_call_start",
+          agent: "claude-code",
+          data: { toolName: "bash", toolUseId: "call-1" },
+        },
+        {
+          id: "2",
+          sessionId: "sess",
+          timestamp: "",
+          type: "tool_call",
+          agent: "claude-code",
+          data: { toolName: "bash", toolUseId: "call-1", output: "ok" },
+        },
+      ];
+
+      const distinct = getDistinctToolCalls(events);
+      expect(distinct.length).toBe(1);
+      expect(distinct[0].toolName).toBe("bash");
+      expect(distinct[0].status).toBe("success");
+    });
+
+    it("should retain uncompleted tool_call_start when execution was interrupted", () => {
+      const events: TraceEvent[] = [
+        {
+          id: "1",
+          sessionId: "sess",
+          timestamp: "",
+          type: "tool_call_start",
+          agent: "grok",
+          data: { toolName: "bash" },
+        },
+        {
+          id: "2",
+          sessionId: "sess",
+          timestamp: "",
+          type: "tool_call",
+          agent: "grok",
+          data: { toolName: "bash", output: "done" },
+        },
+        {
+          id: "3",
+          sessionId: "sess",
+          timestamp: "",
+          type: "tool_call_start",
+          agent: "grok",
+          data: { toolName: "curl", input: "http://example.com" },
+        },
+      ];
+
+      const distinct = getDistinctToolCalls(events);
+      expect(distinct.length).toBe(2);
+      expect(distinct[0].toolName).toBe("bash");
+      expect(distinct[0].status).toBe("success");
+      expect(distinct[1].toolName).toBe("curl");
+      expect(distinct[1].status).toBe("started");
     });
   });
 });

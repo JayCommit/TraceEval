@@ -5,6 +5,35 @@ All notable changes to TraceEval will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.4] - 2026-11-06
+
+### Side-by-Side Diffs, Remote Streaming & Architecture Hardening
+
+#### Side-by-Side File Diffs
+- **Split View Layout**: Added a clean two-column side-by-side diff view with deletions on the left and additions on the right, aligned line-by-line with accurate hunk line numbering.
+- **Instant Split/Unified Toggle**: Added a pill toggle button group in the diff header allowing users to switch between Split view (default) and Unified view without page reloads.
+- **Large Diff Truncation Protection**: Preserved truncation markers across both split and unified views for diffs exceeding 300 lines to ensure browser responsiveness.
+- **Full Offline & Live Support**: Functions identically in standalone static HTML exports and live SSE streaming mode.
+
+#### Remote & Multi-Host Live Streaming
+- **Configurable Host Binding (`--host`)**: Added `--host <host>` and `-H` option (plus `TRACEEVAL_HOST` environment variable) allowing the viewer server to bind to `0.0.0.0` for remote dev setups (Tailscale, LAN, cloud instances, Docker).
+- **Safe Localhost Default**: Default host remains strictly `127.0.0.1` (localhost only) to protect private agent traces and avoid unintended network exposure.
+- **Optional Access Token Authentication (`--token`)**: Added lightweight zero-dependency token authentication (`--token <secret>` or `TRACEEVAL_TOKEN`), requiring `?token=<secret>` or `Authorization: Bearer <secret>` when exposed remotely.
+- **Remote Development Documentation**: Documented best practices including SSH port forwarding (`ssh -L 4242:localhost:4242 user@remote-box`) and security notes.
+
+#### Bug Fixes & Reliability Improvements
+- **Multi-Run Golden Update Integrity**: Fixed an edge case where intermediate passing runs would bless a golden baseline even when the multi-run suite ultimately failed to meet the required pass threshold (`passThresholdMet === false`). Blessing is now strictly deferred until threshold verification succeeds.
+- **Cross-Agent Lifecycle Hook Parity**:
+  - Added missing `file_change` parsing support across Claude, OpenAI / ChatGPT, Antigravity, and Grok Bot.
+  - Added missing `session_start` and `session_end` alias normalization in Claude Code hooks.
+  - Added `UserPrompt` lifecycle registration to Antigravity configuration.
+- **Terminal Golden Diff Cost Alignment**: Fixed a visual bug in `printGoldenDiffView` where the literal string `"Current"` was printed under the CURRENT column instead of the numeric cost value.
+- **Accurate Tool Call Deduplication**: Improved `getDistinctToolCalls` to ensure uncompleted/interrupted tool calls (status: "started") without `toolUseId` are preserved and counted accurately rather than dropped.
+- **Payload Truncation Boundary Safety**: Hardened `truncatePayload` with minimum limit guards to prevent negative slicing anomalies in edge cases.
+- **Expanded Test Suite**: Added 13 new unit and integration tests across split diffs, remote viewer authentication, and multi-run golden integrity (180 tests passing across 24 test files).
+
+---
+
 ## [0.0.3] - 2026-11-06
 
 ### Live Real-Time Viewer, Visual File Diffs & UX Polish

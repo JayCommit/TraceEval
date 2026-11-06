@@ -215,6 +215,14 @@ export function parseOpenAIHookPayload(
       data.status = parsed.error ? "error" : parsed.status || "success";
       break;
 
+    case "file":
+    case "filechange":
+    case "filewrite":
+      eventType = "file_change";
+      data.path = (parsed.path || parsed.file || "unknown") as string;
+      data.changeType = (parsed.status || "modified") as string;
+      break;
+
     case "stop":
     case "sessionend":
       eventType = "session_end";

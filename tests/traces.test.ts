@@ -178,5 +178,43 @@ describe("Trace Inspection & Differencer", () => {
         logSpy.mockRestore();
       }
     });
+
+    it("should execute runTracesDiff comparing a session against a golden baseline with numeric cost", () => {
+      storage.upsertSession({
+        id: sessionA.id,
+        agent: sessionA.agent,
+        startTime: sessionA.startTime,
+        endTime: sessionA.endTime,
+        status: sessionA.status,
+        metadata: { cost: 0.015 },
+      });
+      for (const e of sessionA.events) storage.recordEvent(e);
+
+      // Create golden baseline with cost
+      storage.saveGolden("greeting-test", sessionA, { cost: 0.010 });
+
+      const logs: string[] = [];
+      const logSpy = vi.spyOn(console, "log").mockImplementation((...args) => {
+        logs.push(args.join(" "));
+      });
+
+      const origCwd = process.cwd();
+      try {
+        process.chdir(tmpDir);
+        runTracesDiff(sessionA.id, undefined, { golden: "greeting-test" });
+        expect(logSpy).toHaveBeenCalled();
+
+        const allLogs = logs.join("\n");
+        expect(allLogs).toContain("Trace Comparison: session-a vs Golden Baseline (greeting-test)");
+        expect(allLogs).toContain("Cost");
+        expect(allLogs).toContain("$0.0100");
+        expect(allLogs).toContain("$0.0150");
+        // Verify the old bug '"Current"' is NOT present in the cost row
+        expect(allLogs).not.toMatch(/Cost\s+\$0\.0100\s+Current/);
+      } finally {
+        process.chdir(origCwd);
+        logSpy.mockRestore();
+      }
+    });
   });
 });

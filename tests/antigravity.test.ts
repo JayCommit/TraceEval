@@ -116,5 +116,20 @@ describe("Antigravity Adapter & Customization Hooks", () => {
       expect(event.type).toBe("session_end");
       expect(event.data.reason).toBe("NO_TOOL_CALL");
     });
+
+    it("should parse file change events and sessionend alias", () => {
+      const fileRaw = JSON.stringify({
+        sessionId: "agy-sess-1",
+        path: "src/engine.ts",
+        status: "modified",
+      });
+      const fileEvent = parseAntigravityHookPayload("file", fileRaw);
+      expect(fileEvent.agent).toBe("antigravity");
+      expect(fileEvent.type).toBe("file_change");
+      expect(fileEvent.data.path).toBe("src/engine.ts");
+
+      const endEvent = parseAntigravityHookPayload("sessionend", JSON.stringify({ sessionId: "agy-sess-1" }));
+      expect(endEvent.type).toBe("session_end");
+    });
   });
 });
