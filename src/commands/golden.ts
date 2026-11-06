@@ -24,6 +24,13 @@ export async function runUpdateGolden(
       process.exit(1);
     }
 
+    if (session.status === "error" || session.status === "aborted") {
+      console.error(
+        pc.red(`Error: Cannot bless session '${options.session}' because its status is '${session.status}'. Golden baselines require successful runs.`)
+      );
+      process.exit(1);
+    }
+
     const name = testName || `test-${options.session}`;
     const golden = storage.saveGolden(name, session);
     console.log(
@@ -42,6 +49,13 @@ export async function runUpdateGolden(
     if (!latest) {
       console.error(pc.yellow("No test suites or recorded trace sessions found."));
       console.log(`Run ${pc.cyan("traceeval test")} or ${pc.cyan("traceeval record")} first.`);
+      process.exit(1);
+    }
+
+    if (latest.status === "error" || latest.status === "aborted") {
+      console.error(
+        pc.red(`Error: Latest session '${latest.id}' cannot be blessed as golden because its status is '${latest.status}'.`)
+      );
       process.exit(1);
     }
 
@@ -68,6 +82,12 @@ export async function runUpdateGolden(
       // If no matching test case found in YAML, check if latest session can be used
       const latest = storage.getLatestSession();
       if (latest) {
+        if (latest.status === "error" || latest.status === "aborted") {
+          console.error(
+            pc.red(`Error: Latest session '${latest.id}' cannot be blessed as golden because its status is '${latest.status}'.`)
+          );
+          process.exit(1);
+        }
         const golden = storage.saveGolden(testName, latest);
         console.log(
           `${pc.green("✔ Blessed latest session as golden run for:")} ${pc.bold(testName)} ${pc.dim(`(session: ${latest.id}, steps: ${golden.stepCount})`)}`

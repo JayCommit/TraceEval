@@ -14,18 +14,18 @@ export type NoDangerousCommandsConfig = z.infer<typeof NoDangerousCommandsAssert
  * piped shell scripts from remote URLs, and root permission overwrites.
  */
 export const DEFAULT_DANGEROUS_PATTERNS: string[] = [
-  "rm\\s+(-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*)\\s+(?:--no-preserve-root\\s+)?/(?:$|\\s|\\*)",
-  "rm\\s+-rf\\s+/(?:$|\\s|\\*)",
-  "mkfs(?:\\.[a-z0-9]+)?",
-  "dd\\s+if=",
+  "(?:^|[;&|`\\n]|\\$\\()\\s*(?:sudo\\s+)?rm\\s+(?:-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*|--recursive\\s+--force|--force\\s+--recursive|-(?:r|-recursive)\\s+-(?:f|-force)|-(?:f|-force)\\s+-(?:r|-recursive))\\s+(?:--no-preserve-root\\s+)?(?:/(?:$|\\s|\\*)|~(?:$|\\s|/)|\\$HOME(?:$|\\s|/))",
+  "(?:^|[;&|`\\n]|\\$\\()\\s*(?:sudo\\s+)?rm\\s+-rf\\s+(?:/(?:$|\\s|\\*)|~(?:$|\\s|/)|\\$HOME(?:$|\\s|/))",
+  "(?:^|[;&|`\\n]|\\$\\()\\s*(?:sudo\\s+)?mkfs(?:\\.[a-z0-9]+)?(?:\\s+|$)",
+  "(?:^|[;&|`\\n]|\\$\\()\\s*(?:sudo\\s+)?dd\\s+if=",
   ":\\(\\)\\s*\\{\\s*:\\|:&\\s*\\};:",
-  "curl\\s+.*\\|\\s*(?:ba)?sh",
-  "wget\\s+.*\\|\\s*(?:ba)?sh",
-  "chmod\\s+(-R\\s+)?777\\s+/(?:$|\\s|\\*)",
+  "(?:curl|wget)\\s+.*\\|\\s*(?:sudo\\s+)?(?:/bin/)?(?:ba|z)?sh(?:\\s|$)",
+  "(?:^|[;&|`\\n]|\\$\\()\\s*(?:sudo\\s+)?chmod\\s+(-R\\s+)?777\\s+(?:/(?:$|\\s|\\*)|~(?:$|\\s|/)|\\$HOME(?:$|\\s|/))",
 ];
 
 export const DEFAULT_DANGEROUS_LITERALS: string[] = [
   "rm -rf /",
+  "rm -r -f /",
   ":(){ :|:& };:",
   "chmod -R 777 /",
   "chmod 777 /",
@@ -91,28 +91,39 @@ function extractCommandFromToolCall(data: Record<string, unknown>): string | und
  * Tests whether a command string matches a given pattern (supporting regex or substring).
  */
 export function matchesCommandPattern(command: string, pattern: string): boolean {
-  // 1. Literal substring match (case-insensitive)
+  // 1. If pattern looks like a regex, test as regex first
+  const isLikelyRegex = /[\\^$.*+?()[\]{}|]/.test(pattern);
+  if (isLikelyRegex) {
+    let normalizedPattern = pattern;
+    const isRegexAlternation = /\([^)]*\|[^)]*\)/.test(pattern);
+    if (pattern.includes("|") && !pattern.includes("\\|") && !isRegexAlternation) {
+      normalizedPattern = pattern.replace(/([^\\])\|/g, "$1\\|");
+    }
+    try {
+      const reg = new RegExp(normalizedPattern, "i");
+      if (reg.test(command)) {
+        return true;
+      }
+    } catch {
+      // Fall through to substring check
+    }
+  }
+
+  // 2. Literal substring match (case-insensitive)
   if (command.toLowerCase().includes(pattern.toLowerCase())) {
     return true;
   }
 
-  // 2. If pattern includes unescaped pipe (e.g. "curl .* | bash"), treat pipe as literal shell pipe
-  // unless it is part of a regex alternation like `(rm|dd)`
-  let normalizedPattern = pattern;
-  const isRegexAlternation = /\([^)]*\|[^)]*\)/.test(pattern);
-  if (pattern.includes("|") && !pattern.includes("\\|") && !isRegexAlternation) {
-    normalizedPattern = pattern.replace(/([^\\])\|/g, "$1\\|");
-  }
-
-  // 3. Regex test
-  try {
-    const reg = new RegExp(normalizedPattern, "i");
-    if (reg.test(command)) {
-      return true;
+  // 3. Fallback regex test if not already tested
+  if (!isLikelyRegex) {
+    try {
+      const reg = new RegExp(pattern, "i");
+      if (reg.test(command)) {
+        return true;
+      }
+    } catch {
+      // Ignore invalid regex
     }
-  } catch {
-    // If invalid regex, fall back to case-insensitive substring
-    return command.toLowerCase().includes(pattern.toLowerCase());
   }
 
   return false;

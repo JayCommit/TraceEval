@@ -160,12 +160,13 @@ Phase 4 completed all release requirements for the initial public v0.0.1 release
 
 ---
 
-## 5. Completed Roadmap & v0.0.6 Milestones (Zero Limitations)
-All roadmap milestones and previous limitations are fully implemented, hardened, and tested as of v0.0.6:
+## 5. Hardened Releases & v0.0.7 Milestones (Zero Limitations)
+All roadmap milestones and previous limitations are fully implemented, hardened, and tested as of v0.0.7:
 - [x] **AST-Aware Semantic Diffing**: Syntax-aware structural analysis recognizing moved blocks, reordered functions, modified signatures/parameters, renamed identifiers, and added/removed declarations across TypeScript/JavaScript, Python, and C-like languages with zero dependencies.
 - [x] **Bidirectional Live Viewer Control**: Full interactive browser control allowing users to pause (`SIGSTOP`), resume (`SIGCONT`), abort (`SIGINT`/`SIGTERM`), and inject steering prompts in real time over RFC6455 WebSockets and REST API with token authentication.
 - [x] **Automated Multi-Agent Benchmark Launching (`traceeval bench` / `traceeval arena --launch`)**: Parallel/sequential execution of multiple coding agents (Cursor, Claude, Grok, Grok Bot, OpenAI/ChatGPT, Antigravity, OpenCode) in isolated workspaces against prompts or test specs with simultaneous live Arena streaming and head-to-head scoreboards.
-- [x] **Zero Remaining Limitations**: All planned features and limitations are completely closed with 100% test coverage (200 passing tests across 27 test files).
+- [x] **Deep Security & Reliability Hardening (v0.0.7)**: Directory traversal protection across control files and benchmark workspaces, unhandled error crash protection on WebSocket drops, child process PID registration in recorder, and zero-false-positive dangerous command detection.
+- [x] **Zero Remaining Limitations**: All planned features, bug fixes, and security hardenings are completely closed with 100% test coverage (209 passing tests across 28 test files).
 
 ---
 

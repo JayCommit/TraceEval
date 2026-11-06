@@ -229,20 +229,22 @@ export async function runHook(
       typeof event.data.prompt === "string" &&
       event.data.prompt
     ) {
+      const targetStatus = ctrl.status === "aborted" || ctrl.status === "paused" ? ctrl.status : "active";
       storage.upsertSession({
         id: event.sessionId,
         prompt: event.data.prompt,
         agent: event.agent,
-        status: "active",
+        status: targetStatus,
       });
     }
 
     // If event is session end, update session completion status in SQLite
     if (event.type === "session_end") {
+      const finalStatus = ctrl.status === "aborted" ? "aborted" : "completed";
       storage.upsertSession({
         id: event.sessionId,
         endTime: event.timestamp,
-        status: "completed",
+        status: finalStatus,
       });
     }
 

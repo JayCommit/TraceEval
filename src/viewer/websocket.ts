@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { EventEmitter } from "node:events";
 
 const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+const MAX_WS_FRAME_SIZE = 16 * 1024 * 1024; // 16 MB maximum payload per frame
 
 /**
  * Computes Sec-WebSocket-Accept hash per RFC6455.
@@ -61,7 +62,9 @@ export class TraceWebSocketClient extends EventEmitter {
 
     socket.on("error", (err) => {
       this.isAlive = false;
-      this.emit("error", err);
+      if (this.listenerCount("error") > 0) {
+        this.emit("error", err);
+      }
     });
   }
 
@@ -123,6 +126,12 @@ export class TraceWebSocketClient extends EventEmitter {
         if (this.buffer.length < 10) return;
         payloadLen = Number(this.buffer.readBigUInt64BE(2));
         offset = 10;
+      }
+
+      // Safeguard: reject frames exceeding maximum allowed payload size
+      if (payloadLen > MAX_WS_FRAME_SIZE || payloadLen < 0) {
+        this.close();
+        return;
       }
 
       const maskKeyLen = isMasked ? 4 : 0;

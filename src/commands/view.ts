@@ -142,6 +142,10 @@ export function createViewerServer(
       },
     });
     for (const ws of wsClients) {
+      if (!ws.isAlive || ws.socket.destroyed) {
+        wsClients.delete(ws);
+        continue;
+      }
       try {
         ws.send(wsMessage);
       } catch {
@@ -155,7 +159,8 @@ export function createViewerServer(
     targetSessionId: string,
     message?: string
   ): { success: boolean; action: string; sessionId: string; status?: string; error?: string } {
-    const sid = targetSessionId || targetIds[0];
+    const rawSid = targetSessionId || targetIds[0] || "session";
+    const sid = rawSid.replace(/[^a-zA-Z0-9_-]/g, "_");
     const s = storage.getSession(sid);
     const agent = s?.agent || "agent";
 
@@ -433,6 +438,10 @@ export function createViewerServer(
 
     const wsClient = new TraceWebSocketClient(socket);
     wsClients.add(wsClient);
+
+    wsClient.on("error", () => {
+      wsClients.delete(wsClient);
+    });
 
     wsClient.on("message", (raw) => {
       try {

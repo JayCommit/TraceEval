@@ -367,6 +367,20 @@ export function analyzeSemanticDiff(
   const oldDecls = extractDeclarations(oldContent, language);
   const newDecls = extractDeclarations(newContent, language);
 
+  // Performance safeguard: avoid quadratic comparison explosion on massive declaration sets
+  if (oldDecls.length > 150 || newDecls.length > 150) {
+    return {
+      hasStructuralChanges: false,
+      language,
+      movedBlocks: [],
+      signatureChanges: [],
+      renamedIdentifiers: [],
+      addedDeclarations: [],
+      removedDeclarations: [],
+      summary: [`Semantic analysis skipped: declaration count exceeds limit (${Math.max(oldDecls.length, newDecls.length)} > 150)`],
+    };
+  }
+
   const movedBlocks: MovedBlock[] = [];
   const signatureChanges: SignatureChange[] = [];
   const renamedIdentifiers: RenamedIdentifier[] = [];

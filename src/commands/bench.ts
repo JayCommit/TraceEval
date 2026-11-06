@@ -194,14 +194,23 @@ export async function runBenchmark(options: BenchmarkOptions = {}): Promise<Agen
   const baseWorkspace = options.workspace || process.cwd();
 
   for (const agent of agentList) {
-    const sessionId = `bench-${agent}-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`;
-    const workspaceDir = path.join(storage.baseDir, "workspaces", `${agent}-${sessionId}`);
+    const safeAgent = agent.replace(/[^a-zA-Z0-9_-]/g, "_") || "agent";
+    const sessionId = `bench-${safeAgent}-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`;
+    const workspacesBase = path.resolve(storage.baseDir, "workspaces");
+    const workspaceDir = path.resolve(workspacesBase, `${safeAgent}-${sessionId}`);
+    if (!workspaceDir.startsWith(workspacesBase + path.sep)) {
+      throw new Error(`Security error: Workspace directory escapes workspaces root`);
+    }
     fs.mkdirSync(workspaceDir, { recursive: true });
 
     // Populate isolated workspace
     if (testCase?.setup?.files) {
+      const resolvedWorkspace = path.resolve(workspaceDir);
       for (const [relPath, content] of Object.entries(testCase.setup.files)) {
-        const destPath = path.join(workspaceDir, relPath);
+        const destPath = path.resolve(workspaceDir, relPath);
+        if (!destPath.startsWith(resolvedWorkspace + path.sep) && destPath !== resolvedWorkspace) {
+          throw new Error(`Security error: Setup file path '${relPath}' escapes workspace directory`);
+        }
         fs.mkdirSync(path.dirname(destPath), { recursive: true });
         fs.writeFileSync(destPath, content, "utf-8");
       }
@@ -311,6 +320,7 @@ export async function runBenchmark(options: BenchmarkOptions = {}): Promise<Agen
     };
 
     let exitCode = 0;
+    let stderrOutput = "";
     try {
       await new Promise<void>((resolve, reject) => {
         const child: ChildProcess = spawn(run.command, {
@@ -328,9 +338,23 @@ export async function runBenchmark(options: BenchmarkOptions = {}): Promise<Agen
           });
         }
 
+        child.stderr?.on("data", (chunk: Buffer) => {
+          stderrOutput += chunk.toString("utf-8");
+          if (stderrOutput.length > 4096) {
+            stderrOutput = stderrOutput.slice(-4096);
+          }
+        });
+
         const killTimer = setTimeout(() => {
           try {
-            if (child.pid) process.kill(child.pid, "SIGTERM");
+            if (child && !child.killed) {
+              child.kill("SIGTERM");
+              setTimeout(() => {
+                try {
+                  if (child && !child.killed) child.kill("SIGKILL");
+                } catch {}
+              }, 1000).unref();
+            }
           } catch {}
           reject(new Error(`Timeout reached (${timeoutMs}ms)`));
         }, timeoutMs);
@@ -350,7 +374,13 @@ export async function runBenchmark(options: BenchmarkOptions = {}): Promise<Agen
         });
       });
 
-      run.status = exitCode === 0 ? "completed" : "error";
+      if (exitCode !== 0) {
+        run.status = "error";
+        const errDetails = stderrOutput.trim() || `Process exited with code ${exitCode}`;
+        console.log(`  ${pc.red("✖")} ${run.agent} failed: ${errDetails}`);
+      } else {
+        run.status = "completed";
+      }
     } catch (err: unknown) {
       run.status = "error";
       const message = err instanceof Error ? err.message : String(err);
@@ -415,8 +445,11 @@ export async function runBenchmark(options: BenchmarkOptions = {}): Promise<Agen
         ? (run.allPassed !== false ? pc.green("COMPLETED") : pc.yellow("FAILED ASSERTIONS"))
         : pc.red("ERROR");
 
+    const isSuccess = run.status === "completed" && run.allPassed !== false;
+    const icon = isSuccess ? pc.green("✔") : pc.red("✖");
+
     console.log(
-      `  ${pc.green("✔")} ${pc.bold(run.agent)} finished in ${run.durationMs}ms [${statusBadge}] (${run.stepCount} steps, ${run.filesTouched} files)`
+      `  ${icon} ${pc.bold(run.agent)} finished in ${run.durationMs}ms [${statusBadge}] (${run.stepCount} steps, ${run.filesTouched} files)`
     );
   };
 

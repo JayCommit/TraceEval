@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, ChildProcess } from "node:child_process";
 import crypto from "node:crypto";
 import pc from "picocolors";
 import { StorageManager } from "../storage/index.js";
@@ -11,7 +11,7 @@ export interface RecordOptions {
   prompt?: string;
 }
 
-export function runRecord(commandArgs: string[], options: RecordOptions = {}): void {
+export async function runRecord(commandArgs: string[], options: RecordOptions = {}): Promise<void> {
   if (!commandArgs || commandArgs.length === 0) {
     console.log(pc.yellow("No command provided to record."));
     console.log("");
@@ -82,24 +82,44 @@ export function runRecord(commandArgs: string[], options: RecordOptions = {}): v
 
   // Execute command with injected session ID
   const [cmd, ...args] = commandArgs;
-  SessionProcessRegistry.register(sessionId, { pid: process.pid, agent });
 
-  let child;
+  let exitCode = 0;
   try {
-    child = spawnSync(cmd, args, {
-      stdio: "inherit",
-      env: {
-        ...process.env,
-        TRACEEVAL_SESSION_ID: sessionId,
-      },
+    exitCode = await new Promise<number>((resolve) => {
+      const child: ChildProcess = spawn(cmd, args, {
+        stdio: "inherit",
+        shell: true,
+        env: {
+          ...process.env,
+          TRACEEVAL_SESSION_ID: sessionId,
+        },
+      });
+
+      if (child.pid) {
+        SessionProcessRegistry.register(sessionId, {
+          pid: child.pid,
+          process: child,
+          agent,
+        });
+      }
+
+      child.on("close", (code) => {
+        SessionProcessRegistry.unregister(sessionId);
+        resolve(code ?? 0);
+      });
+
+      child.on("error", () => {
+        SessionProcessRegistry.unregister(sessionId);
+        resolve(1);
+      });
     });
-  } finally {
+  } catch {
     SessionProcessRegistry.unregister(sessionId);
+    exitCode = 1;
   }
 
   const durationMs = Date.now() - startTs;
   const endTime = new Date().toISOString();
-  const exitCode = child.status ?? (child.error ? 1 : 0);
   const status = exitCode === 0 ? "completed" : "error";
 
   // Record session end

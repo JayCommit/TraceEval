@@ -22,7 +22,7 @@ const program = new Command();
 program
   .name("traceeval")
   .description("TraceEval — Local-first evaluation and regression testing for AI coding agents")
-  .version("0.0.6")
+  .version("0.0.7")
   .enablePositionalOptions();
 
 // Command: init
@@ -52,7 +52,7 @@ program
   .option("-a, --agent <name>", "Agent name (e.g., claude-code)", "claude-code")
   .option("-p, --prompt <prompt>", "User prompt provided to the agent")
   .passThroughOptions()
-  .action((cmdArgs, options) => {
+  .action(async (cmdArgs, options) => {
     // Collect args after "--" if present, otherwise use cmdArgs
     const rawArgs = process.argv.slice(2);
     const dashDashIndex = rawArgs.indexOf("--");
@@ -61,7 +61,7 @@ program
         ? rawArgs.slice(dashDashIndex + 1)
         : (Array.isArray(cmdArgs) && cmdArgs.length > 0 ? cmdArgs : []);
 
-    runRecord(commandToRun, {
+    await runRecord(commandToRun, {
       session: options.session,
       agent: options.agent,
       prompt: options.prompt,
@@ -226,6 +226,7 @@ program
   .option("-a, --agents <list>", "Agents to launch when --launch is specified (default: 'claude,cursor')")
   .option("-p, --prompt <string>", "Task prompt for agents when --launch is specified")
   .option("-t, --test <path>", "Path to test spec YAML to run as benchmark")
+  .option("-w, --workspace <dir>", "Custom base workspace directory for isolated agent copies")
   .option("--cmd <template>", "Command template when --launch is specified")
   .option("-s, --sessions <list>", "Comma-separated list of session IDs to compare in the arena")
   .option("-o, --output <file>", "Export static arena HTML report to specific file path without starting server")
@@ -240,6 +241,7 @@ program
         agents: options.agents,
         prompt: options.prompt,
         test: options.test,
+        workspace: options.workspace,
         cmd: options.cmd,
         serve: options.serve,
         host: options.host,
@@ -271,6 +273,7 @@ program
   .option("-a, --agents <list>", "Comma-separated list of agents to launch (default: 'claude,cursor')")
   .option("-p, --prompt <string>", "Task prompt for all agents")
   .option("-t, --test <path>", "Path to test spec YAML to run as benchmark")
+  .option("-w, --workspace <dir>", "Custom base workspace directory for isolated agent copies")
   .option("--cmd <template>", "Command template for invoking agents ({agent} and {prompt})")
   .option("--commands <json>", "JSON mapping of agent names to explicit command lines")
   .option("--timeout <ms>", "Execution timeout in milliseconds", "120000")
@@ -287,6 +290,7 @@ program
       agents: options.agents,
       prompt: options.prompt,
       test: options.test,
+      workspace: options.workspace,
       cmd: options.cmd,
       commands: options.commands,
       timeout: options.timeout,

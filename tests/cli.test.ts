@@ -309,7 +309,7 @@ assertions:
       cwd: tmpDir,
       encoding: "utf-8",
     }).trim();
-    expect(versionOutput).toBe("0.0.6");
+    expect(versionOutput).toBe("0.0.7");
 
     // Test traceeval bench --no-serve with simulated command
     const benchOutput = execSync(

@@ -61,9 +61,43 @@ class ProcessRegistry {
       agent: p.agent,
     }));
   }
+
+  /**
+   * Terminates all currently registered child processes cleanly.
+   */
+  terminateAll(): void {
+    for (const [sessionId, reg] of this.processes.entries()) {
+      try {
+        if (reg.process && !reg.process.killed) {
+          reg.process.kill("SIGTERM");
+        } else if (reg.pid > 0 && reg.pid !== process.pid) {
+          process.kill(reg.pid, "SIGTERM");
+        }
+      } catch {
+        // Ignore errors during termination
+      }
+      this.processes.delete(sessionId);
+    }
+  }
 }
 
 export const SessionProcessRegistry = new ProcessRegistry();
+
+// Ensure active child processes are cleaned up if TraceEval receives SIGINT/SIGTERM
+let cleanupRegistered = false;
+export function registerProcessCleanupHandlers(): void {
+  if (cleanupRegistered) return;
+  cleanupRegistered = true;
+
+  const cleanup = () => {
+    SessionProcessRegistry.terminateAll();
+  };
+
+  process.once("SIGINT", cleanup);
+  process.once("SIGTERM", cleanup);
+}
+
+registerProcessCleanupHandlers();
 
 /**
  * Resolves path to control state directory (.traceeval/control).
@@ -77,10 +111,18 @@ export function getControlDir(baseDir?: string): string {
 }
 
 /**
- * Resolves path to a session's control state file.
+ * Resolves path to a session's control state file, safely scoped to prevent directory traversal.
  */
 export function getControlFilePath(sessionId: string, baseDir?: string): string {
-  return path.join(getControlDir(baseDir), `${sessionId}.json`);
+  const controlDir = path.resolve(getControlDir(baseDir));
+  const safeId = (sessionId || "").replace(/[^a-zA-Z0-9_-]/g, "_") || "session";
+  const resolved = path.resolve(controlDir, `${safeId}.json`);
+
+  if (!resolved.startsWith(controlDir + path.sep)) {
+    throw new Error(`Security error: Session ID '${sessionId}' escapes control directory`);
+  }
+
+  return resolved;
 }
 
 /**
@@ -135,9 +177,13 @@ export function pauseSession(
     saveSessionControlState(state, baseDir);
 
     const reg = SessionProcessRegistry.get(sessionId);
-    if (reg && reg.pid && process.platform !== "win32") {
+    if (reg && reg.pid > 0 && reg.pid !== process.pid && process.platform !== "win32") {
       try {
-        process.kill(reg.pid, "SIGSTOP");
+        if (reg.process && !reg.process.killed) {
+          reg.process.kill("SIGSTOP");
+        } else {
+          process.kill(reg.pid, "SIGSTOP");
+        }
       } catch {
         // Process might have terminated already
       }
@@ -164,9 +210,13 @@ export function resumeSession(
     saveSessionControlState(state, baseDir);
 
     const reg = SessionProcessRegistry.get(sessionId);
-    if (reg && reg.pid && process.platform !== "win32") {
+    if (reg && reg.pid > 0 && reg.pid !== process.pid && process.platform !== "win32") {
       try {
-        process.kill(reg.pid, "SIGCONT");
+        if (reg.process && !reg.process.killed) {
+          reg.process.kill("SIGCONT");
+        } else {
+          process.kill(reg.pid, "SIGCONT");
+        }
       } catch {
         // Ignore
       }
@@ -193,12 +243,20 @@ export function abortSession(
     saveSessionControlState(state, baseDir);
 
     const reg = SessionProcessRegistry.get(sessionId);
-    if (reg && reg.pid) {
+    if (reg && reg.pid > 0 && reg.pid !== process.pid) {
       try {
-        process.kill(reg.pid, "SIGINT");
+        if (reg.process && !reg.process.killed) {
+          reg.process.kill("SIGINT");
+        } else {
+          process.kill(reg.pid, "SIGINT");
+        }
         setTimeout(() => {
           try {
-            process.kill(reg.pid, "SIGKILL");
+            if (reg.process && !reg.process.killed) {
+              reg.process.kill("SIGKILL");
+            } else {
+              process.kill(reg.pid, "SIGKILL");
+            }
           } catch {
             // Already dead
           }

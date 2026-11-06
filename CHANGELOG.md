@@ -5,6 +5,46 @@ All notable changes to TraceEval will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.7] - 2026-11-06
+
+### Deep Security, Reliability & Process Hardening
+
+#### 🔒 1. Security & Path Traversal Hardening
+- **Control State Path Traversal Protection**: Hardened `getControlFilePath` in `src/engine/control.ts` to strictly sanitize session identifiers (`[^a-zA-Z0-9_-]`) and enforce directory containment within `.traceeval/control`.
+- **Benchmark Setup Files Traversal Guard**: Added workspace directory escape checks in `src/commands/bench.ts` for test specification `setup.files` (matching `runner.ts` security invariants).
+- **Workspace Directory Root Enforcement**: Sanitized agent names and validated that benchmark workspace paths remain strictly rooted inside `.traceeval/workspaces`.
+- **HTML Script Block XSS Defense**: Embedded session IDs and parameters in script tags using `\u003c` / `\u003e` Unicode escaping (`safeScriptJson`), preventing raw `<script>` or `</script>` tags from breaking script block boundaries.
+
+#### 🛡️ 2. WebSocket Resiliency & Server Stability
+- **Unhandled Error Crash Prevention**: Fixed a critical crash where `TraceWebSocketClient` emitted `"error"` events without listeners when client connections dropped abruptly (`ECONNRESET`, `EPIPE`). The client now safely checks listener counts and the viewer server registers error handlers.
+- **Frame Size Allocation Guard**: Enforced a 16 MB maximum payload limit per RFC6455 frame to protect against memory exhaustion DoS attacks.
+- **Dead Connection Pruning**: Automated removal of terminated Duplex sockets from viewer broadcasting loops.
+
+#### ⚡ 3. Process Control & Recording Reliability
+- **Child Process PID Registration**: Fixed `src/commands/record.ts` which previously registered `process.pid` (the CLI runner) instead of the spawned child process PID. Converted `runRecord` to asynchronous `spawn` so viewer pause/resume/abort actions target the actual agent process.
+- **PID Boundary Checks**: Hardened `pauseSession`, `resumeSession`, and `abortSession` to verify `pid > 0 && pid !== process.pid` and prefer direct `ChildProcess.kill()`.
+- **Orphaned Process Termination**: Added `SessionProcessRegistry.terminateAll()` and wired `SIGINT` / `SIGTERM` cleanup handlers to automatically terminate active agent child processes when TraceEval is interrupted.
+
+#### 🔍 4. Precision Dangerous Command Detection
+- **Shell Command Boundary Analysis**: Position-aware command boundary parsing (`(?:^|[;&|\n]|\$\()\s*(?:sudo\s+)?`) prevents false positives when safe commands inspect strings (e.g. `grep mkfs README.md`, `python run_mkfs.py`).
+- **Separated Flag Evasion Detection**: Flags dangerous deletions using separated flags (e.g. `rm -r -f /`, `rm -f -r /`, `rm --recursive -f /`).
+- **Home Directory Protection**: Flags destruction of home directories (`rm -rf ~`, `rm -rf $HOME`).
+- **Privilege Escalation Script Pipe Detection**: Flags remote scripts piped to privileged shells (`curl ... | sudo bash`, `wget ... | sudo sh`).
+
+#### 🏆 5. Integrity & Golden Baseline Guards
+- **Failed Session Blessing Rejection**: `traceeval update-golden` explicitly rejects blessing sessions with status `"error"` or `"aborted"`.
+- **Hook Status Preservation**: Agent hooks no longer overwrite `"aborted"` or `"paused"` statuses with `"active"` upon receiving delayed events.
+- **REST Control Auth Parity**: Browser UI control buttons (Pause, Resume, Abort, Inject) pass the `--token` parameter to `/api/control`, eliminating `401 Unauthorized` errors when token authentication is active.
+- **Benchmark Stderr Diagnostics**: Failed benchmark agents capture stderr up to 4KB and display the exact root cause in terminal scoreboards.
+
+#### 🧹 6. Performance, Consistency & Documentation
+- **Semantic Diff Size Safeguards**: Added a declaration count threshold (150) to prevent quadratic comparison spikes on massive files.
+- **Workspace CLI Flag**: Added `-w, --workspace <dir>` CLI option to `traceeval bench` and `traceeval arena`.
+- **Version Alignment**: Updated HTML footers and test expectations to `v0.0.7`.
+- **Test Suite Expansion**: Added `tests/security_v007.test.ts` (9 new tests); full test suite now stands at **209 tests passing across 28 test files**.
+
+---
+
 ## [0.0.6] - 2026-11-06
 
 ### AST-Aware Semantic Diffing, Bidirectional Viewer Control & Automated Multi-Agent Benchmarks
