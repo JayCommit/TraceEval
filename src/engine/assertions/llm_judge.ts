@@ -33,13 +33,28 @@ function buildTrajectoryContext(session: TraceSession): string {
 
   if (distinctCalls.length > 0) {
     lines.push("Tool Call Sequence:");
-    for (const [idx, call] of distinctCalls.entries()) {
+    const maxDisplayed = 20;
+    const callsToRender =
+      distinctCalls.length <= maxDisplayed
+        ? distinctCalls
+        : [
+            ...distinctCalls.slice(0, 5),
+            null, // sentinel for truncated middle
+            ...distinctCalls.slice(-(maxDisplayed - 5)),
+          ];
+
+    for (const [idx, call] of callsToRender.entries()) {
+      if (call === null) {
+        const skipped = distinctCalls.length - maxDisplayed;
+        lines.push(`  ... [${skipped} intermediate tool calls omitted for token efficiency] ...`);
+        continue;
+      }
       let inputSummary = "";
       if (call.data?.input) {
         if (typeof call.data.input === "string") {
-          inputSummary = call.data.input.slice(0, 150);
+          inputSummary = call.data.input.slice(0, 100);
         } else if (typeof call.data.input === "object") {
-          inputSummary = JSON.stringify(call.data.input).slice(0, 150);
+          inputSummary = JSON.stringify(call.data.input).slice(0, 100);
         }
       }
       lines.push(`  ${idx + 1}. [${call.toolName}] ${inputSummary}`);
@@ -97,14 +112,8 @@ export async function executeJudgeInference(
     };
   }
 
-  const systemInstruction = `You are an impartial AI judge evaluating coding agent trajectories against specific quality criteria.
-Evaluate the provided trajectory and criteria.
-Respond ONLY with a valid JSON object matching this schema:
-{
-  "score": <float between 0.0 and 1.0>,
-  "reasoning": "<concise explanation in 1-2 sentences>",
-  "passed": <boolean>
-}`;
+  const systemInstruction = `Impartial AI judge evaluating coding agent trajectories against criteria.
+Respond ONLY with a JSON object: {"score": <float 0.0-1.0>, "reasoning": "<1-2 concise sentences>", "passed": <boolean>}`;
 
   const userContent = `Evaluation Task: ${judgePrompt}
 Specific Criteria: ${criteria}

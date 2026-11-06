@@ -3,8 +3,8 @@
 > **pytest + git blame for AI coding agents.**  
 > *Stop shipping agent regressions. Catch them before they cost you tokens and time.*
 
-[![npm version](https://img.shields.io/badge/npm-v0.0.1-blue.svg)](https://www.npmjs.com/package/traceeval)
-[![Tests](https://img.shields.io/badge/tests-129%20passing-brightgreen.svg)](https://github.com/JayCommit/TraceEval)
+[![npm version](https://img.shields.io/badge/npm-v0.0.2-blue.svg)](https://www.npmjs.com/package/traceeval)
+[![Tests](https://img.shields.io/badge/tests-158%20passing-brightgreen.svg)](https://github.com/JayCommit/TraceEval)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D22.0.0-green.svg)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-ES2022-blue)](https://www.typescriptlang.org/)
@@ -13,16 +13,17 @@
 
 ## Why TraceEval?
 
-AI coding agents (Claude Code, OpenCode, Codex CLI) generate code rapidly, but verification is mostly manual. A single prompt edit or model upgrade can quietly cause agents to take 3x more steps, call unauthorized tools, or write broken code.
+AI coding agents generate code rapidly, but verification is mostly manual. A single prompt edit or model upgrade can quietly cause agents to take 3x more steps, call unauthorized tools, or burn unnecessary tokens.
 
 - **Local-first & private**: Runs 100% locally on your machine or in CI. No mandatory cloud observability platforms or token leaks.
+- **Token-efficient by design**: Zero-token deterministic assertions, automatic payload truncation, and compact MCP responses that protect agent context windows.
 - **Regression-first ("git blame" for agents)**: Compares current runs against known-good golden baselines to catch step inflation, tool deviations, and cost drift.
-- **Trajectory validation, not just output diffs**: Validates both the final codebase state and the path taken (tool calls, safety boundaries, step budgets).
-- **Zero-to-low instrumentation**: Native background hooks for Claude Code and plugins for OpenCode. Zero changes to your application code.
+- **Trajectory validation, not just output diffs**: Validates both final code state and the path taken (tool calls, safety boundaries, step budgets).
+- **First-class agent support**: One-command hook injection for Cursor, Grok, Grok Bot, OpenAI / ChatGPT app, Antigravity, Claude Code, and OpenCode.
 
 ---
 
-## ⚡ Quickstart (< 10 Minutes)
+## ⚡ Quickstart (< 5 Minutes)
 
 ### 1. Install TraceEval
 
@@ -48,17 +49,32 @@ This creates:
 
 ### 3. Connect your coding agent
 
-Install background recording hooks:
+Install background recording hooks with a single command:
 
 ```bash
-# For Claude Code (writes to .claude/settings.json):
+# Cursor
+traceeval install cursor
+
+# Grok (xAI)
+traceeval install grok
+
+# Grok Bot
+traceeval install grok-bot
+
+# OpenAI / ChatGPT Desktop
+traceeval install openai
+
+# Antigravity
+traceeval install antigravity
+
+# Claude Code
 traceeval install claude
 
-# For OpenCode (writes to .opencode/plugins/):
+# OpenCode
 traceeval install opencode
 ```
 
-Claude Code and OpenCode will now automatically stream session events, tool calls, and file modifications directly to `.traceeval/traces` in the background with zero latency.
+Lifecycle hooks stream tool calls and session events directly to `.traceeval/traces` in the background with zero latency.
 
 ### 4. Run the evaluation suite
 
@@ -89,7 +105,33 @@ Status:   ALL TESTS PASSED
 traceeval test --update-golden
 ```
 
-TraceEval saves the baseline fingerprint (step count, duration, tool call breakdown, touched files) to `.traceeval/golden/`. Future runs will now be validated against this golden baseline.
+TraceEval saves the baseline fingerprint (step count, duration, tool call breakdown, touched files, token spend) to `.traceeval/golden/`. Future runs will be evaluated against this golden standard.
+
+---
+
+## 🤖 Supported Agents
+
+| Agent | Install Command | Target Config / Hooks | Notes |
+| :--- | :--- | :--- | :--- |
+| **Cursor** | `traceeval install cursor` | `.cursor/hooks.json`, `.cursor/mcp.json`, `.cursor/rules/traceeval.mdc` | Configures tool hooks, MCP server, and workspace agent rules. |
+| **Grok** | `traceeval install grok` | `.grok/hooks.json`, `.grok/config.json` | Captures tool invocations and token usage metrics. |
+| **Grok Bot** | `traceeval install grok-bot` | `.grok-bot/plugins/traceeval.js`, `.grok-bot/config.json` | Bot middleware adapter for automated CI / PR bots. |
+| **OpenAI / ChatGPT** | `traceeval install openai` | `.openai/hooks.json`, `.openai/config.json`, `.openai/mcp.json` | Integrates with ChatGPT Desktop App and OpenAI SDK/CLI tools. |
+| **Antigravity** | `traceeval install antigravity` | `.agents/hooks.json` | Native Antigravity lifecycle hooks (`SessionStart`, `PreToolUse`, `PostToolUse`, `Stop`). Preserves existing hooks. |
+| **Claude Code** | `traceeval install claude` | `.claude/settings.json` | Native Claude Code hooks (`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`). |
+| **OpenCode** | `traceeval install opencode` | `.opencode/plugins/traceeval.js`, `.opencode/config.json` | OpenCode plugin capturing tool execution and file modifications. |
+
+---
+
+## 💰 Token Efficiency & Cost Reduction
+
+TraceEval is engineered to prevent token waste:
+
+1. **Deterministic Assertions First**: Prefer `file_contains`, `tests_pass`, `max_steps`, and `cost_under` for instant, 0-token evaluations.
+2. **Intelligent Payload Truncation**: Automatically bounds large tool outputs (e.g. giant logs or diffs) to prevent context explosion while preserving diagnostics.
+3. **Token-Aware MCP Server**: `get_trace` provides compact tool outputs by default so AI agents introspecting past runs don't blow their context window.
+4. **Lean Trajectory Summaries**: LLM-as-a-judge (`--judge`) summarizes large trajectories by consolidating intermediate steps and using a minimal system prompt.
+5. **Cost & Token Drift Budgets**: Detect token inflation before merging with `cost_under` assertions and `max_cost_increase` golden limits.
 
 ---
 
@@ -133,7 +175,7 @@ assertions:
   - type: "no_dangerous_commands"
 ```
 
-If an agent change causes step drift or uses a forbidden tool, TraceEval flags the regression and fails with exit code 1:
+If an agent change causes step drift or uses a forbidden tool, TraceEval flags the regression and exits with code 1:
 
 ```text
 ✖ FAIL Refactor Authentication Logic (1.2s)
@@ -152,18 +194,6 @@ If an agent change causes step drift or uses a forbidden tool, TraceEval flags t
   ✓ [no_dangerous_commands] No dangerous commands executed
 ```
 
-To view or re-bless the baseline standard:
-```bash
-# Compare two runs side-by-side:
-traceeval traces diff session-1 session-2
-
-# Compare a run against a golden baseline:
-traceeval traces diff session-1 --golden "Refactor Authentication Logic"
-
-# Bless new run after an intentional prompt change:
-traceeval update-golden "Refactor Authentication Logic"
-```
-
 ---
 
 ## 🛠 Core Commands
@@ -171,14 +201,13 @@ traceeval update-golden "Refactor Authentication Logic"
 | Command | Description |
 | :--- | :--- |
 | `traceeval init` | Initializes `.traceeval/` config and starter tests |
-| `traceeval install claude` | Injects zero-friction recording hooks into `.claude/settings.json` |
-| `traceeval install opencode` | Installs TraceEval plugin for OpenCode |
+| `traceeval install <agent>` | Injects hooks for `cursor`, `grok`, `grok-bot`, `openai`, `antigravity`, `claude`, or `opencode` |
 | `traceeval record -- <cmd...>` | Explicitly runs and records any agent command in a bounded session |
-| `traceeval test` | Runs all YAML test specs in `.traceeval/tests/` |
+| `traceeval test` | Runs declarative YAML test suite in `.traceeval/tests/` |
 | `traceeval test --update-golden` | Runs tests and blesses passing runs as golden baselines |
 | `traceeval test --runs 5 --min-success 80%` | Statistical multi-run evaluation for non-deterministic agents |
 | `traceeval test --ci` | Strict CI mode with non-zero exit code and `$GITHUB_STEP_SUMMARY` export |
-| `traceeval update-golden [test]` | Blesses the latest run as the golden baseline standard |
+| `traceeval update-golden [test]` | Blesses a test run as the new golden baseline standard |
 | `traceeval golden list` | Lists all registered golden baselines and step counts |
 | `traceeval traces list` | Lists recent recorded execution traces |
 | `traceeval traces show <id>` | Shows chronological event timeline, tool inputs/outputs, and files touched |
@@ -194,11 +223,7 @@ traceeval update-golden "Refactor Authentication Logic"
 ### 1. Offline HTML Trace Viewer
 TraceEval includes a self-contained, offline HTML viewer with zero external CDN dependencies:
 ```bash
-# Serve viewer for the latest session:
 traceeval view --latest --serve
-
-# Export static HTML file:
-traceeval view --latest --output ./reports/trace.html
 ```
 Features interactive category filters (tool calls, file changes, prompts), live payload search, and side-by-side golden diff banners.
 
@@ -207,7 +232,7 @@ Link tests directly to requirements in `AGENTS.md` or `CLAUDE.md`:
 ```yaml
 spec: "AGENTS.md#Authentication Rules"
 ```
-Validate that linked documentation sections still exist in CI:
+Validate linked documentation headings in CI:
 ```bash
 traceeval specs --validate
 ```
@@ -217,7 +242,7 @@ Allows agents to query historical traces, inspect golden standards, and avoid pa
 ```bash
 traceeval mcp
 ```
-Configure in Claude Code (`~/.claude/settings.json`) or Cursor (`.cursor/mcp.json`):
+Configure in Cursor (`.cursor/mcp.json`), Claude Code (`~/.claude/settings.json`), or ChatGPT Desktop (`.openai/mcp.json`):
 ```json
 {
   "mcpServers": {
@@ -249,7 +274,7 @@ Configure in Claude Code (`~/.claude/settings.json`) or Cursor (`.cursor/mcp.jso
 Use the turnkey composite action in `.github/workflows/agent-eval.yml`:
 
 ```yaml
-name: Agent Regression Testing
+name: Agent Regression Suite
 on: [push, pull_request]
 
 jobs:
@@ -260,48 +285,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm ci && npm run build
-      - name: Run TraceEval
-        uses: ./
+      - uses: JayCommit/TraceEval@v1
         with:
-          test-path: .traceeval/tests
-          comment-pr: true
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-```
-
-Or run directly in any CI runner:
-```bash
-npx traceeval test --ci --markdown --output .traceeval/report.md
+          test_path: ".traceeval/tests"
+          runs: 3
+          min_success: "80%"
 ```
 
 ---
 
-## 💻 Installation Options
+## License
 
-```bash
-# 1. Global install via npm:
-npm install -g traceeval
-
-# 2. Run on-demand via npx:
-npx traceeval <command>
-
-# 3. From source:
-git clone https://github.com/JayCommit/TraceEval.git
-cd TraceEval
-npm install
-npm run build
-```
-
-*(Requires Node.js >= 22.0.0 for built-in `node:sqlite` support with zero native addons).*
-
----
-
-## 🤝 Contributing
-
-Contributions are warmly welcomed! See [CONTRIBUTING.md](CONTRIBUTING.md) for local development setup, code organization, and PR guidelines.
-
----
-
-## 📄 License
-
-[Apache License 2.0](LICENSE) © TraceEval Contributors
+Apache-2.0

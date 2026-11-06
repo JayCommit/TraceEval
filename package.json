@@ -1,6 +1,6 @@
 {
   "name": "traceeval",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Local-first evaluation and regression testing tool for AI coding agents",
   "type": "module",
   "main": "./dist/index.js",
@@ -38,6 +38,10 @@
   "keywords": [
     "evaluation",
     "ai-agents",
+    "cursor",
+    "grok",
+    "openai",
+    "antigravity",
     "claude-code",
     "opencode",
     "regression-testing",

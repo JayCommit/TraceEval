@@ -21,7 +21,7 @@ const program = new Command();
 program
   .name("traceeval")
   .description("TraceEval — Local-first evaluation and regression testing for AI coding agents")
-  .version("0.0.1")
+  .version("0.0.2")
   .enablePositionalOptions();
 
 // Command: init
@@ -36,7 +36,7 @@ program
 // Command: install
 program
   .command("install [agent]")
-  .description("Install recording hooks into agent configuration (default: claude)")
+  .description("Install recording hooks into agent configuration (cursor, grok, grok-bot, openai, antigravity, claude, opencode)")
   .option("-g, --global", "Install globally into user home directory settings", false)
   .action((agent = "claude", options) => {
     runInstall(agent, { global: options.global });

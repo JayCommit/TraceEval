@@ -1,39 +1,17 @@
-import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import crypto from "node:crypto";
 import { TraceEvent } from "../types/index.js";
 import { resolveSessionId } from "./session.js";
+import {
+  createEventId,
+  normalizeHookType,
+  truncatePayload,
+  safeJsonParse,
+  updateJsonFile,
+} from "./common.js";
 
 export * from "./session.js";
-
-/**
- * ============================================================================
- * Recording Strategies: Pure Hooks vs. Record Wrapper
- * ============================================================================
- *
- * TraceEval provides two complementary mechanisms to capture agent execution traces:
- *
- * 1. Pure Hooks (`traceeval install claude`):
- *    - Injects lifecycle hooks (`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`)
- *      directly into `.claude/settings.json` (project-local or `~/.claude/settings.json` global).
- *    - Zero-friction & transparent: developers run `claude` normally.
- *    - Hooks run in the background, pipe JSON payload from Claude Code to `traceeval hook <type>`,
- *      and persist events immediately into `.traceeval/traces/` (JSONL + SQLite).
- *    - Session correlation: events in the same session share a unified `sessionId`
- *      resolved from payload metadata (`session_id`), `TRACEEVAL_SESSION_ID`, or the
- *      active session tracker (`.traceeval/.active_session`).
- *    - Non-blocking & silent: hooks complete within ~10ms and fail silently (exit code 0)
- *      so agent execution is never interrupted or degraded.
- *
- * 2. Record Wrapper (`traceeval record -- <command...>`):
- *    - Spawns the agent command as a child process with explicit session boundaries.
- *    - Injects `TRACEEVAL_SESSION_ID=<sessionId>` into the child process environment,
- *      ensuring any hooks fired inside the command correlate directly into the wrapper session.
- *    - Captures total process duration, start/end events, and exit code.
- *    - Ideal for automated evaluations (`traceeval test`), CI pipelines, and batch benchmarking.
- * ============================================================================
- */
+export * from "./common.js";
 
 export interface ClaudeHookEntry {
   matcher?: string;
@@ -64,32 +42,7 @@ export function installClaudeHooks(options: {
   binaryPath?: string;
 }): { configPath: string; backupPath?: string } {
   const configPath = getClaudeSettingsPath(options.global, options.cwd);
-  const dir = path.dirname(configPath);
-
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-
-  let settings: ClaudeSettings = {};
-  let backupPath: string | undefined;
-
-  if (fs.existsSync(configPath)) {
-    try {
-      const raw = fs.readFileSync(configPath, "utf-8");
-      settings = JSON.parse(raw);
-      // Backup original
-      backupPath = `${configPath}.bak.${Date.now()}`;
-      fs.writeFileSync(backupPath, raw, "utf-8");
-    } catch {
-      settings = {};
-    }
-  }
-
   const bin = options.binaryPath || "traceeval";
-
-  if (!settings.hooks) {
-    settings.hooks = {};
-  }
 
   const requiredHooks: Record<string, ClaudeHookEntry> = {
     UserPromptSubmit: {
@@ -110,17 +63,22 @@ export function installClaudeHooks(options: {
     },
   };
 
-  for (const [hookName, hookEntry] of Object.entries(requiredHooks)) {
-    const currentList = settings.hooks[hookName] || [];
-    // Check if traceeval hook already exists in list
-    const exists = currentList.some((h) => h.command.includes("traceeval hook"));
-    if (!exists) {
-      settings.hooks[hookName] = [...currentList, hookEntry];
+  const updateResult = updateJsonFile<ClaudeSettings>(configPath, (settings) => {
+    const hooks = settings.hooks || {};
+    for (const [hookName, hookEntry] of Object.entries(requiredHooks)) {
+      const currentList = hooks[hookName] || [];
+      const exists = currentList.some((h) => h.command.includes("traceeval hook"));
+      if (!exists) {
+        hooks[hookName] = [...currentList, hookEntry];
+      }
     }
-  }
+    return {
+      ...settings,
+      hooks,
+    };
+  });
 
-  fs.writeFileSync(configPath, JSON.stringify(settings, null, 2), "utf-8");
-  return { configPath, backupPath };
+  return { configPath, backupPath: updateResult.backupPath };
 }
 
 export interface ParseHookOptions {
@@ -167,7 +125,7 @@ export interface ClaudeHookPayload {
 
 export function parseClaudeHookPayload(
   hookType: string,
-  rawPayload: string,
+  rawPayload: string | Record<string, unknown>,
   sessionOrOptions?: string | ParseHookOptions
 ): TraceEvent {
   const options: ParseHookOptions =
@@ -175,20 +133,7 @@ export function parseClaudeHookPayload(
       ? { sessionId: sessionOrOptions }
       : sessionOrOptions || {};
 
-  let parsed: ClaudeHookPayload = {};
-  try {
-    if (rawPayload && rawPayload.trim().length > 0) {
-      const parsedJson = JSON.parse(rawPayload);
-      if (typeof parsedJson === "object" && parsedJson !== null) {
-        parsed = parsedJson as ClaudeHookPayload;
-      } else {
-        parsed = { raw: rawPayload };
-      }
-    }
-  } catch {
-    // If not valid JSON, treat as raw string payload
-    parsed = { raw: rawPayload };
-  }
+  const parsed = safeJsonParse<ClaudeHookPayload>(rawPayload, {});
 
   const sessionId = resolveSessionId({
     explicitId: options.sessionId,
@@ -196,12 +141,12 @@ export function parseClaudeHookPayload(
     baseDir: options.baseDir,
   });
 
-  const eventId = `evt-${Date.now()}-${crypto.randomBytes(3).toString("hex")}`;
+  const eventId = createEventId("claude");
   const timestamp = new Date().toISOString();
+  const normalized = normalizeHookType(hookType || "");
 
-  const normalized = (hookType || "").toLowerCase().replace(/[-_]/g, "");
   let eventType: TraceEvent["type"] = "custom";
-  const data: Record<string, unknown> = { ...parsed };
+  const data: Record<string, unknown> = truncatePayload({ ...parsed }) as Record<string, unknown>;
 
   switch (normalized) {
     case "prompt":

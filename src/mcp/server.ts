@@ -68,7 +68,7 @@ export class McpServer {
             protocolVersion: "2024-11-05",
             serverInfo: {
               name: "traceeval-mcp",
-              version: "0.0.1",
+              version: "0.0.2",
             },
             capabilities: {
               tools: {},
@@ -101,11 +101,12 @@ export class McpServer {
               },
               {
                 name: "get_trace",
-                description: "Get detailed event trajectory, tool calls, and metrics for a specific trace session ID",
+                description: "Get detailed event trajectory, tool calls, and metrics for a specific trace session ID. Returns token-efficient compact outputs by default.",
                 inputSchema: {
                   type: "object",
                   properties: {
                     sessionId: { type: "string", description: "The session ID of the trace (or 'latest')" },
+                    maxOutputLength: { type: "number", description: "Max character length per tool output to conserve tokens (default: 1000)" },
                   },
                   required: ["sessionId"],
                 },
@@ -209,16 +210,23 @@ export class McpServer {
           return { error: `Trace session '${sid}' not found` };
         }
 
+        const maxLen = typeof args.maxOutputLength === "number" ? args.maxOutputLength : 1000;
         const toolCalls = session.events
           .filter((e) => e.type === "tool_call" || e.type === "tool_call_start")
-          .map((e) => ({
-            type: e.type,
-            tool: e.data?.toolName || e.data?.tool,
-            input: e.data?.input,
-            output: e.data?.output,
-            status: e.data?.status,
-            durationMs: e.data?.durationMs,
-          }));
+          .map((e) => {
+            let output = e.data?.output;
+            if (typeof output === "string" && output.length > maxLen) {
+              output = `${output.slice(0, maxLen)}... [truncated ${output.length - maxLen} chars]`;
+            }
+            return {
+              type: e.type,
+              tool: e.data?.toolName || e.data?.tool,
+              input: e.data?.input,
+              output,
+              status: e.data?.status,
+              durationMs: e.data?.durationMs,
+            };
+          });
 
         return {
           id: session.id,

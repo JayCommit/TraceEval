@@ -1,6 +1,13 @@
 import { StorageManager } from "../storage/index.js";
+import { TraceEvent } from "../types/index.js";
 import { parseClaudeHookPayload } from "../hooks/claude.js";
 import { parseOpenCodeHookPayload } from "../hooks/opencode.js";
+import { parseCursorHookPayload } from "../hooks/cursor.js";
+import { parseGrokHookPayload } from "../hooks/grok.js";
+import { parseGrokBotHookPayload } from "../hooks/grok_bot.js";
+import { parseOpenAIHookPayload } from "../hooks/openai.js";
+import { parseAntigravityHookPayload } from "../hooks/antigravity.js";
+import { safeJsonParse } from "../hooks/common.js";
 
 export interface HookOptions {
   session?: string;
@@ -82,6 +89,47 @@ export async function readStdin(timeoutMs = 500): Promise<string> {
 }
 
 /**
+ * Resolves the appropriate event parser function based on agent name or payload.
+ */
+function resolveAgentParser(agentName?: string, rawPayload?: string): (
+  hookType: string,
+  raw: string,
+  options: { sessionId?: string; baseDir?: string; debug?: boolean }
+) => TraceEvent {
+  let target = (agentName || "").toLowerCase().trim();
+
+  // If agent not explicitly specified, inspect payload
+  if (!target && rawPayload) {
+    const parsed = safeJsonParse<Record<string, unknown>>(rawPayload, {});
+    if (typeof parsed.agent === "string") {
+      target = parsed.agent.toLowerCase().trim();
+    }
+  }
+
+  switch (target) {
+    case "cursor":
+      return parseCursorHookPayload;
+    case "grok":
+      return parseGrokHookPayload;
+    case "grok-bot":
+    case "grokbot":
+      return parseGrokBotHookPayload;
+    case "openai":
+    case "chatgpt":
+      return parseOpenAIHookPayload;
+    case "antigravity":
+    case "agy":
+      return parseAntigravityHookPayload;
+    case "opencode":
+      return parseOpenCodeHookPayload;
+    case "claude":
+    case "claude-code":
+    default:
+      return parseClaudeHookPayload;
+  }
+}
+
+/**
  * Main hook execution function called by `traceeval hook <type>`.
  * Non-blocking, completely fail-safe: never throws or breaks the caller.
  */
@@ -129,29 +177,12 @@ export async function runHook(
       }
     }
 
-    let isOpencode = options.agent?.toLowerCase() === "opencode";
-    if (!isOpencode && rawPayload.includes('"opencode"')) {
-      try {
-        const checkJson = JSON.parse(rawPayload);
-        if (checkJson.agent === "opencode") {
-          isOpencode = true;
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    const event = isOpencode
-      ? parseOpenCodeHookPayload(hookType, rawPayload, {
-          sessionId: options.session,
-          baseDir: options.baseDir,
-          debug,
-        })
-      : parseClaudeHookPayload(hookType, rawPayload, {
-          sessionId: options.session,
-          baseDir: options.baseDir,
-          debug,
-        });
+    const parser = resolveAgentParser(options.agent, rawPayload);
+    const event = parser(hookType, rawPayload, {
+      sessionId: options.session,
+      baseDir: options.baseDir,
+      debug,
+    });
 
     if (options.tool && (!event.data.toolName || event.data.toolName === "unknown")) {
       event.data.toolName = options.tool;
@@ -159,7 +190,7 @@ export async function runHook(
 
     if (debug) {
       logHookDebug(
-        `Parsed event: id=${event.id}, type=${event.type}, session=${event.sessionId}, tool=${
+        `Parsed event: id=${event.id}, agent=${event.agent}, type=${event.type}, session=${event.sessionId}, tool=${
           event.data.toolName ?? "none"
         }`
       );

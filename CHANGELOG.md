@@ -5,6 +5,47 @@ All notable changes to TraceEval will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.2] - 2026-11-06
+
+### Token Optimization, Extended Agent Support & Quality Improvements
+
+#### Token Usage & Efficiency
+- **Intelligent Payload Truncation**: Added `truncatePayload` helper that safely truncates oversized tool outputs (> 8KB) while preserving diagnostic heads and tails, keeping trace storage compact and preventing agent context window explosion.
+- **Token-Conscious MCP Trace Retrieval**: Added `maxOutputLength` option in `get_trace` MCP tool (defaulting to 1000 characters per tool output) to prevent massive tool outputs from exhausting agent context tokens.
+- **Optimized LLM-as-a-Judge**: Streamlined `buildTrajectoryContext` to cap verbose tool call sequences (summarizing intermediate steps when exceeding 20 steps) and condensed system prompts by 50% for lower input token overhead.
+- **Zero-Token Deterministic Assertions**: Re-emphasized deterministic assertions (`file_contains`, `tests_pass`, `max_steps`, `cost_under`) as the primary zero-cost evaluation method.
+
+#### SMART & DRY Architecture
+- **Consolidated Shared Hook Infrastructure**: Extracted `src/hooks/common.ts` providing unified event ID generation (`createEventId`), safe JSON parsing (`safeJsonParse`), non-destructive atomic config file updater (`updateJsonFile`), and hook normalization (`normalizeHookType`).
+- **Unified Multi-Agent Hook Dispatcher**: Updated `src/commands/hook.ts` to automatically detect agent payloads and route lifecycle events cleanly to agent-specific parsers.
+
+#### Priority Agent Support
+- **Cursor**:
+  - Added native integration command `traceeval install cursor`.
+  - Configures `.cursor/hooks.json` (`SessionStart`, `PreToolUse`, `PostToolUse`, `Stop`), registers MCP server in `.cursor/mcp.json`, and writes `.cursor/rules/traceeval.mdc`.
+  - Normalizes Cursor terminal executions and file edits into standard `TraceEvent` format.
+- **Grok**:
+  - Added `traceeval install grok` configuring `.grok/hooks.json` and `.grok/config.json`.
+  - Added `parseGrokHookPayload` with automatic token usage extraction (`data.tokens`).
+- **Grok Bot**:
+  - Added `traceeval install grok-bot` (and alias `grokbot`).
+  - Installs `.grok-bot/plugins/traceeval.js` bot middleware adapter to record automated bot actions and tool results.
+- **OpenAI / ChatGPT App**:
+  - Added `traceeval install openai` (and alias `chatgpt`).
+  - Configures `.openai/hooks.json`, `.openai/config.json`, and `.openai/mcp.json`.
+  - Normalizes OpenAI function calls (`tool_calls`), tool responses, and token usage into `TraceEvent`.
+- **Antigravity**:
+  - Added `traceeval install antigravity` (and alias `agy`).
+  - Configures `.agents/hooks.json` (and `~/.gemini/config/hooks.json` when `--global`) registering `SessionStart`, `PreToolUse`, `PostToolUse`, and `Stop`.
+  - Preserves any existing third-party hooks configured in the workspace.
+- **Claude Code & OpenCode**:
+  - Refactored to leverage shared hook utilities and safe payload truncation while maintaining backwards compatibility.
+
+#### Test Coverage
+- Expanded test suite from 129 to 158 tests passing across 22 test files, with dedicated test coverage for Cursor, Grok, Grok Bot, OpenAI, Antigravity, and token efficiency.
+
+---
+
 ## [0.0.1] - 2026-11-06
 
 ### Initial Public Release — The "pytest + git blame" for AI Coding Agents
